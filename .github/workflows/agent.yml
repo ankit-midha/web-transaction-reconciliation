@@ -1,13 +1,15 @@
-# Agent workflow — receives workflow_dispatch calls from the merged-SDLC orchestrator
-# (deployed at https://2qezpcsfpa.execute-api.ap-southeast-2.amazonaws.com).
+# Agent workflow — real Claude Code invocation on Bedrock.
 #
-# CURRENT SHAPE (stub): echoes the phase inputs and comments back on the Jira ticket via
-# the same X-JIRA-Secret path the webhook accepts. Proves the workflow_dispatch loop
-# closes without needing Bedrock / Claude Code / secrets yet.
+# Triggered by workflow_dispatch from the merged-arch orchestrator webhook Lambda
+# (https://2qezpcsfpa.execute-api.ap-southeast-2.amazonaws.com) when a Jira ticket
+# transitions to READY FOR BUILD.
 #
-# REAL SHAPE (later): swap the "stub echo" step for anthropics/claude-code-action@v1
-# reading phases/<phase>/prompt.md from the personal-agentic-poc scaffold, mounting the
-# Atlassian MCP via AgentCore Gateway, and letting Claude drive the phase.
+# What this workflow does (intake phase — the only phase implemented so far):
+#   1. Fetches the Jira ticket via REST v3 into .workflow/ticket.json
+#   2. Assumes an AWS IAM role via GitHub OIDC (no long-lived AWS keys)
+#   3. Runs anthropics/claude-code-action@v1 on Bedrock (Sonnet 4.5) with prompts/intake.md
+#      → Claude reads the ticket + writes .workflow/artifacts/spec.md
+#   4. POSTs the spec content back to Jira as a comment on the ticket
 
 name: Agent
 
@@ -18,60 +20,107 @@ on:
         description: intake | spec-refine | plan | plan-refine | impl-refine
         required: true
       job_id:
-        description: Orchestrator job id (e.g. wtr-1-abc123)
+        description: Orchestrator job id
         required: true
       jira_key:
-        description: JIRA ticket key (e.g. WTR-1)
+        description: Jira ticket key
         required: true
       attempt:
-        description: Attempt number (bumps only on RETRYING sweeper)
+        description: Attempt number
         required: false
         default: "1"
       hint:
-        description: Optional /refine hint from the reviewer's comment body
+        description: Optional /refine hint
         required: false
         default: ""
       client_ref:
-        description: Dispatcher idempotency token (job_id:phase:attempt)
+        description: Dispatcher idempotency token
         required: true
 
+concurrency:
+  # Serialise per (jira_key, phase) so a burst of dispatches doesn't fan out into
+  # parallel Claude runs on the same ticket.
+  group: agent-${{ inputs.jira_key }}-${{ inputs.phase }}
+  cancel-in-progress: false
+
 jobs:
-  stub-phase:
-    name: Stub — echo inputs + comment back on Jira
+  intake:
+    if: inputs.phase == 'intake'
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write        # OIDC token for AssumeRoleWithWebIdentity
     steps:
-      - name: Echo inputs
-        run: |
-          echo "phase       = ${{ inputs.phase }}"
-          echo "job_id      = ${{ inputs.job_id }}"
-          echo "jira_key    = ${{ inputs.jira_key }}"
-          echo "attempt     = ${{ inputs.attempt }}"
-          echo "hint        = ${{ inputs.hint }}"
-          echo "client_ref  = ${{ inputs.client_ref }}"
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Post audit comment back to Jira via the webhook
+      - name: Fetch Jira ticket
         env:
-          # Same shared secret the deployed webhook accepts. POC-only.
-          JIRA_SHARED_SECRET: test-secret-123
-          WEBHOOK: https://2qezpcsfpa.execute-api.ap-southeast-2.amazonaws.com
+          JIRA_BASE_URL: ${{ vars.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ vars.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_KEY: ${{ inputs.jira_key }}
         run: |
-          # Send an ambient comment_created back to the orchestrator — proves the
-          # workflow ran to completion and the webhook can be reached from GH runners.
-          BODY=$(printf '{
-            "event": "comment_created",
-            "delivery_id": "gha-%s-%s-%s",
-            "jira_key": "%s",
-            "actor_email": "agent-bot@example.com",
-            "creator_email": "agent-bot@example.com",
-            "body": "phase %s ran on GHA (job_id=%s, client_ref=%s). This is a stub — replace with the real phase agent."
-          }' "${{ inputs.jira_key }}" "${{ inputs.phase }}" "$RANDOM" \
-             "${{ inputs.jira_key }}" \
-             "${{ inputs.phase }}" "${{ inputs.job_id }}" "${{ inputs.client_ref }}")
+          set -eu
+          mkdir -p .workflow/artifacts
+          echo "Fetching ${JIRA_BASE_URL}/rest/api/3/issue/${JIRA_KEY}"
+          curl -sSf -u "${JIRA_EMAIL}:${JIRA_API_TOKEN}" \
+            "${JIRA_BASE_URL}/rest/api/3/issue/${JIRA_KEY}" \
+            > .workflow/ticket.json
+          # Sanity — did we get a real ticket back?
+          jq -e '.key' .workflow/ticket.json >/dev/null
+          echo "Fetched ticket: $(jq -r '.key + " — " + .fields.summary' .workflow/ticket.json)"
 
-          echo "posting: $BODY"
-          curl -sS -w '\nHTTP %{http_code}\n' -X POST "$WEBHOOK/webhook/jira" \
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          role-session-name: agent-${{ inputs.jira_key }}-intake-${{ inputs.attempt }}
+          aws-region: ap-southeast-2
+
+      - name: Run Claude Code — intake
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_args: >-
+            --model ${{ vars.BEDROCK_MODEL_ID }}
+            --allowed-tools Read,Write,Edit,Bash,Grep,Glob
+            --max-turns 8
+          prompt: "@prompts/intake.md"
+        env:
+          CLAUDE_CODE_USE_BEDROCK: "1"
+          AWS_REGION: ap-southeast-2
+          ANTHROPIC_MODEL: ${{ vars.BEDROCK_MODEL_ID }}
+          JIRA_KEY: ${{ inputs.jira_key }}
+          JOB_ID: ${{ inputs.job_id }}
+          CLIENT_REF: ${{ inputs.client_ref }}
+
+      - name: Post spec to Jira ticket
+        env:
+          JIRA_BASE_URL: ${{ vars.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ vars.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_KEY: ${{ inputs.jira_key }}
+        run: |
+          set -eu
+          if [ ! -f .workflow/artifacts/spec.md ]; then
+            echo "::error::spec.md was not produced by Claude"
+            exit 1
+          fi
+          # Jira REST v3 wants the comment body as Atlassian Document Format.
+          # Simplest: one top-level codeBlock so the markdown renders literally.
+          BODY=$(jq -Rs '{body:{version:1,type:"doc",content:[{type:"codeBlock",attrs:{language:"markdown"},content:[{type:"text",text:.}]}]}}' \
+            < .workflow/artifacts/spec.md)
+          curl -sSf -u "${JIRA_EMAIL}:${JIRA_API_TOKEN}" \
             -H 'Content-Type: application/json' \
-            -H "X-JIRA-Secret: $JIRA_SHARED_SECRET" \
-            -d "$BODY"
+            -X POST "${JIRA_BASE_URL}/rest/api/3/issue/${JIRA_KEY}/comment" \
+            -d "$BODY" | jq -r '"posted comment id=" + .id'
+
+  # Placeholder job so other phases (spec-refine / plan / …) don't cause a workflow error
+  # while they're still stubbed out.
+  other-phases-stub:
+    if: inputs.phase != 'intake'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log unimplemented phase
+        run: |
+          echo "phase '${{ inputs.phase }}' not yet implemented — replace when the corresponding prompt lands"
