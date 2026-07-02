@@ -1,0 +1,77 @@
+# Agent workflow — receives workflow_dispatch calls from the merged-SDLC orchestrator
+# (deployed at https://2qezpcsfpa.execute-api.ap-southeast-2.amazonaws.com).
+#
+# CURRENT SHAPE (stub): echoes the phase inputs and comments back on the Jira ticket via
+# the same X-JIRA-Secret path the webhook accepts. Proves the workflow_dispatch loop
+# closes without needing Bedrock / Claude Code / secrets yet.
+#
+# REAL SHAPE (later): swap the "stub echo" step for anthropics/claude-code-action@v1
+# reading phases/<phase>/prompt.md from the personal-agentic-poc scaffold, mounting the
+# Atlassian MCP via AgentCore Gateway, and letting Claude drive the phase.
+
+name: Agent
+
+on:
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: intake | spec-refine | plan | plan-refine | impl-refine
+        required: true
+      job_id:
+        description: Orchestrator job id (e.g. wtr-1-abc123)
+        required: true
+      jira_key:
+        description: JIRA ticket key (e.g. WTR-1)
+        required: true
+      attempt:
+        description: Attempt number (bumps only on RETRYING sweeper)
+        required: false
+        default: "1"
+      hint:
+        description: Optional /refine hint from the reviewer's comment body
+        required: false
+        default: ""
+      client_ref:
+        description: Dispatcher idempotency token (job_id:phase:attempt)
+        required: true
+
+jobs:
+  stub-phase:
+    name: Stub — echo inputs + comment back on Jira
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Echo inputs
+        run: |
+          echo "phase       = ${{ inputs.phase }}"
+          echo "job_id      = ${{ inputs.job_id }}"
+          echo "jira_key    = ${{ inputs.jira_key }}"
+          echo "attempt     = ${{ inputs.attempt }}"
+          echo "hint        = ${{ inputs.hint }}"
+          echo "client_ref  = ${{ inputs.client_ref }}"
+
+      - name: Post audit comment back to Jira via the webhook
+        env:
+          # Same shared secret the deployed webhook accepts. POC-only.
+          JIRA_SHARED_SECRET: test-secret-123
+          WEBHOOK: https://2qezpcsfpa.execute-api.ap-southeast-2.amazonaws.com
+        run: |
+          # Send an ambient comment_created back to the orchestrator — proves the
+          # workflow ran to completion and the webhook can be reached from GH runners.
+          BODY=$(printf '{
+            "event": "comment_created",
+            "delivery_id": "gha-%s-%s-%s",
+            "jira_key": "%s",
+            "actor_email": "agent-bot@example.com",
+            "creator_email": "agent-bot@example.com",
+            "body": "phase %s ran on GHA (job_id=%s, client_ref=%s). This is a stub — replace with the real phase agent."
+          }' "${{ inputs.jira_key }}" "${{ inputs.phase }}" "$RANDOM" \
+             "${{ inputs.jira_key }}" \
+             "${{ inputs.phase }}" "${{ inputs.job_id }}" "${{ inputs.client_ref }}")
+
+          echo "posting: $BODY"
+          curl -sS -w '\nHTTP %{http_code}\n' -X POST "$WEBHOOK/webhook/jira" \
+            -H 'Content-Type: application/json' \
+            -H "X-JIRA-Secret: $JIRA_SHARED_SECRET" \
+            -d "$BODY"
