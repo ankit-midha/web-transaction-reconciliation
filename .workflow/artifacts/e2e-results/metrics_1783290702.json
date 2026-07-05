@@ -1,0 +1,11 @@
+{
+  "start_time": "2026-07-05T22:31:42.864674",
+  "end_time": "2026-07-05T22:31:42.865988",
+  "duration_ms": 1,
+  "ticket_size_bytes": 18824,
+  "prompt_size_bytes": 0,
+  "spec_size_bytes": 2219,
+  "sections_generated": 7,
+  "open_questions_count": 4,
+  "acceptance_criteria_count": 0
+}

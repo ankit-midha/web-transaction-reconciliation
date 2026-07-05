@@ -1,0 +1,619 @@
+{
+  "expand": "renderedFields,names,schema,operations,editmeta,changelog,versionedRepresentations",
+  "id": "10042",
+  "self": "https://example.atlassian.net/rest/api/3/issue/10042",
+  "key": "WTR-5",
+  "fields": {
+    "statuscategorychangedate": "2026-07-05T10:30:00.000+1000",
+    "issuetype": {
+      "self": "https://example.atlassian.net/rest/api/3/issuetype/10001",
+      "id": "10001",
+      "description": "A user story",
+      "iconUrl": "https://example.atlassian.net/secure/viewavatar?size=medium&avatarId=10315",
+      "name": "Story",
+      "subtask": false,
+      "avatarId": 10315
+    },
+    "timespent": null,
+    "project": {
+      "self": "https://example.atlassian.net/rest/api/3/project/10000",
+      "id": "10000",
+      "key": "WTR",
+      "name": "Web Transaction Reconciliation",
+      "projectTypeKey": "software",
+      "simplified": false,
+      "avatarUrls": {
+        "48x48": "https://example.atlassian.net/secure/projectavatar?pid=10000&avatarId=10324",
+        "24x24": "https://example.atlassian.net/secure/projectavatar?size=small&pid=10000&avatarId=10324",
+        "16x16": "https://example.atlassian.net/secure/projectavatar?size=xsmall&pid=10000&avatarId=10324",
+        "32x32": "https://example.atlassian.net/secure/projectavatar?size=medium&pid=10000&avatarId=10324"
+      }
+    },
+    "fixVersions": [],
+    "aggregatetimespent": null,
+    "resolution": null,
+    "resolutiondate": null,
+    "workratio": -1,
+    "lastViewed": "2026-07-05T10:35:00.000+1000",
+    "watches": {
+      "self": "https://example.atlassian.net/rest/api/3/issue/WTR-5/watchers",
+      "watchCount": 1,
+      "isWatching": true
+    },
+    "created": "2026-07-04T14:20:00.000+1000",
+    "priority": {
+      "self": "https://example.atlassian.net/rest/api/3/priority/3",
+      "iconUrl": "https://example.atlassian.net/images/icons/priorities/medium.svg",
+      "name": "Medium",
+      "id": "3"
+    },
+    "labels": [
+      "payment-gateway",
+      "reconciliation",
+      "batch-processing"
+    ],
+    "customfield_10016": null,
+    "customfield_10017": null,
+    "customfield_10018": {
+      "hasEpicLinkFieldDependency": false,
+      "showField": false,
+      "nonEditableReason": {
+        "reason": "PLUGIN_LICENSE_ERROR",
+        "message": "Portfolio for Jira must be licensed for the Parent Link to be available."
+      }
+    },
+    "customfield_10019": "0|i00007:",
+    "aggregatetimeoriginalestimate": null,
+    "timeestimate": null,
+    "versions": [],
+    "issuelinks": [],
+    "assignee": {
+      "self": "https://example.atlassian.net/rest/api/3/user?accountId=557058:1234abcd-5678-90ef-ghij-klmnopqrstuv",
+      "accountId": "557058:1234abcd-5678-90ef-ghij-klmnopqrstuv",
+      "emailAddress": "dev@example.com",
+      "avatarUrls": {
+        "48x48": "https://secure.gravatar.com/avatar/abc123?d=mm&s=48",
+        "24x24": "https://secure.gravatar.com/avatar/abc123?d=mm&s=24",
+        "16x16": "https://secure.gravatar.com/avatar/abc123?d=mm&s=16",
+        "32x32": "https://secure.gravatar.com/avatar/abc123?d=mm&s=32"
+      },
+      "displayName": "Dev Team",
+      "active": true,
+      "timeZone": "Australia/Sydney",
+      "accountType": "atlassian"
+    },
+    "updated": "2026-07-05T10:30:00.000+1000",
+    "status": {
+      "self": "https://example.atlassian.net/rest/api/3/status/10000",
+      "description": "Ready for development",
+      "iconUrl": "https://example.atlassian.net/",
+      "name": "Ready For Build",
+      "id": "10000",
+      "statusCategory": {
+        "self": "https://example.atlassian.net/rest/api/3/statuscategory/4",
+        "id": 4,
+        "key": "indeterminate",
+        "colorName": "yellow",
+        "name": "In Progress"
+      }
+    },
+    "components": [],
+    "timeoriginalestimate": null,
+    "description": {
+      "version": 1,
+      "type": "doc",
+      "content": [
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Background"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Our payment gateway integration currently processes transactions in real-time but lacks a comprehensive end-to-end reconciliation system. When daily batch settlements arrive from the payment processor (Stripe, PayPal, etc.), we have no automated way to verify that every transaction we recorded matches what the processor actually settled."
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "This has led to several issues:"
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Undetected failed transactions that show as successful in our system"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Duplicate charges going unnoticed until customer complaints"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Revenue discrepancies between our financial reports and actual bank deposits"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Manual reconciliation taking 4-6 hours per day for finance team"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Objective"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Build an automated web transaction reconciliation system that:"
+            }
+          ]
+        },
+        {
+          "type": "orderedList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Ingests daily settlement reports from payment gateways (initially Stripe and PayPal, CSV format)"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Matches external transaction IDs against our internal transaction database"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Identifies discrepancies (missing transactions, amount mismatches, status conflicts)"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Generates a daily reconciliation report with actionable exception items"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Sends alerts to finance team when exceptions exceed thresholds"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Acceptance Criteria"
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "System can parse and normalize Stripe and PayPal settlement CSV files"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Reconciliation matches transactions using external gateway transaction ID as the primary key"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Detects three categories of exceptions: missing-in-gateway, missing-in-our-db, amount-mismatch"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Daily report generated in PDF format with summary metrics and detailed exception table"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Email alert sent to finance@example.com when: >5 missing transactions OR total amount variance >$500"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Process completes for typical daily volume (2000-5000 transactions) within 10 minutes"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Reconciliation history retained for 7 years (compliance requirement)"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Technical Notes"
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Our transactions table is PostgreSQL, ~20M rows, indexed on gateway_transaction_id"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Settlement files dropped daily to S3 bucket s3://example-settlements/YYYY-MM-DD/"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Prefer Lambda + Step Functions for orchestration over long-running cron job"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Should handle partial file uploads gracefully (file appears mid-processing)"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Out of Scope"
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Automatic correction of discrepancies (manual review required)"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Integration with accounting system (QuickBooks export)"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Chargeback/dispute tracking (separate project WTR-12)"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Real-time reconciliation (daily batch is sufficient)"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "customfield_10010": null,
+    "customfield_10014": null,
+    "timetracking": {},
+    "customfield_10015": null,
+    "customfield_10005": null,
+    "customfield_10006": null,
+    "security": null,
+    "customfield_10007": null,
+    "customfield_10008": null,
+    "aggregatetimeestimate": null,
+    "customfield_10009": null,
+    "summary": "Implement automated payment gateway reconciliation system",
+    "creator": {
+      "self": "https://example.atlassian.net/rest/api/3/user?accountId=557058:9876fedc-ba09-87fe-dcba-fedcba098765",
+      "accountId": "557058:9876fedc-ba09-87fe-dcba-fedcba098765",
+      "emailAddress": "product@example.com",
+      "avatarUrls": {
+        "48x48": "https://secure.gravatar.com/avatar/xyz789?d=mm&s=48",
+        "24x24": "https://secure.gravatar.com/avatar/xyz789?d=mm&s=24",
+        "16x16": "https://secure.gravatar.com/avatar/xyz789?d=mm&s=16",
+        "32x32": "https://secure.gravatar.com/avatar/xyz789?d=mm&s=32"
+      },
+      "displayName": "Product Manager",
+      "active": true,
+      "timeZone": "Australia/Sydney",
+      "accountType": "atlassian"
+    },
+    "subtasks": [],
+    "reporter": {
+      "self": "https://example.atlassian.net/rest/api/3/user?accountId=557058:9876fedc-ba09-87fe-dcba-fedcba098765",
+      "accountId": "557058:9876fedc-ba09-87fe-dcba-fedcba098765",
+      "emailAddress": "product@example.com",
+      "avatarUrls": {
+        "48x48": "https://secure.gravatar.com/avatar/xyz789?d=mm&s=48",
+        "24x24": "https://secure.gravatar.com/avatar/xyz789?d=mm&s=24",
+        "16x16": "https://secure.gravatar.com/avatar/xyz789?d=mm&s=16",
+        "32x32": "https://secure.gravatar.com/avatar/xyz789?d=mm&s=32"
+      },
+      "displayName": "Product Manager",
+      "active": true,
+      "timeZone": "Australia/Sydney",
+      "accountType": "atlassian"
+    },
+    "aggregateprogress": {
+      "progress": 0,
+      "total": 0
+    },
+    "customfield_10001": null,
+    "customfield_10002": null,
+    "customfield_10003": null,
+    "customfield_10004": null,
+    "environment": null,
+    "duedate": "2026-07-20",
+    "progress": {
+      "progress": 0,
+      "total": 0
+    },
+    "votes": {
+      "self": "https://example.atlassian.net/rest/api/3/issue/WTR-5/votes",
+      "votes": 0,
+      "hasVoted": false
+    }
+  }
+}
