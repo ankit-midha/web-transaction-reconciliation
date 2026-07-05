@@ -1,59 +1,69 @@
-# Draft spec — WTR-4: REST controller — 4 endpoints + DTOs + validation
+# Draft spec — WTR-10: E2E verification, deployment config, and docs
 
 ## Problem
-The Web Transaction Store needs REST endpoints to create, retrieve, and update web transaction records. Currently, these endpoints do not exist. External systems (including Sidekick) need to store transaction metadata with JSONB payloads and query/update by reference identifier.
+The web-transaction-microsite (WTS) and orders-microsite integration needs end-to-end testing infrastructure, deployment configuration, and documentation to be production-ready. Currently missing:
+- WireMock test stubs in orders-microsite to verify WTS integration behavior (happy path + failure modes)
+- Deployment configuration (microsite.yaml) for both services in the RetailX pipeline
+- Documentation covering architecture, setup, integration points, and design decisions
 
 ## Goal
-Expose four REST endpoints under `/v1/webtransaction` that allow creating transactions, fetching by ID or reference, and updating reconciliation status. All endpoints must validate inputs and return proper HTTP status codes (201/200/404/400).
+Complete the cross-cutting deliverables required to deploy and maintain the WTS integration: E2E test harness with WireMock stubs, deployment configuration with feature flag control, and comprehensive documentation.
 
 ## Non-Goals
-- Bulk operations (batch create/update)
-- DELETE endpoint
-- Pagination for list endpoints
-- Authentication/authorization implementation
+- Implementing the actual WTS or orders-microsite integration logic (assumed complete)
+- Performance testing or load testing
+- Production monitoring/alerting setup beyond Slack channel routing
+- Database migration scripts (RDS Postgres binding only)
 
 ## Users / Surfaces affected
-**External systems:**
-- Sidekick service — will call `GET /v1/webtransaction/reference/{reference}` to retrieve transactions by reference identifier
-- Any service creating web transactions — will call `POST /v1/webtransaction`
-- Services updating reconciliation — will call `PUT /v1/webtransaction/reference/{reference}`
+**orders-microsite:**
+- `tests/` directory — new WireMock stub definitions for WTS endpoints
+- `CHANGELOG.md` — integration documentation entry
+- Deployment config — `microsite.yaml` with WTS feature flag
 
-**New components:**
-- `WebTransactionController` — REST controller with 4 endpoints
-- `WebTransactionService` — domain layer between controller and repository
-- `CreateWebTransactionRequest` DTO
-- `UpdateWebTransactionRequest` DTO
-- `WebTransactionResponse` DTO
-- Repository layer (interfacing with existing DB schema)
+**web-transaction-microsite:**
+- `README.md` — new/updated with architecture, dev setup, endpoints, security scopes
+- Deployment config — `microsite.yaml` with RDS Postgres binding
+- New ADR document — fire-and-forget design rationale and failure modes
+
+**Shared:**
+- Docker Compose configuration for E2E testing
+- RetailX CI/CD pipeline definitions for both services
 
 ## Acceptance Criteria
-- `POST /v1/webtransaction` returns 201 Created with full record in response body
-- `GET /v1/webtransaction/{id}` returns 200 with record or 404 if not found
-- `GET /v1/webtransaction/reference/{reference}` returns 200 with record or 404 if reference doesn't exist
-- `PUT /v1/webtransaction/reference/{reference}` returns 200 with updated record, updates only `reconcile_status` and `external_reference_number`
-- Bean validation errors return 400 with structure: `{ "error": "...", "details": { "field": "message" } }`
-- JSONB fields (`originalPayload`, `reconcilePayload`) round-trip correctly, preserving nested map structure
-- `reference` field max length 100 characters
-- `externalReferenceNumber` field max length 255 characters
-- Service layer validates enum values for `transactionType`, `externalReferenceType`, and `reconcileStatus`
-- Service throws `EntityNotFoundException` for missing references, triggering 404 response
+- WireMock stubs in orders-microsite tests cover:
+  - `POST /v1/webtransaction` returning 201
+  - `PUT /v1/webtransaction/reference/{ref}` returning 200
+  - Failure scenarios (500 error, timeout) exercising fire-and-forget behavior
+- `microsite.yaml` deployment configuration exists for both services with:
+  - Image build definitions
+  - ECS Fargate task definitions
+  - RDS Postgres binding for WTS
+  - Slack channel routing
+  - Environment promotion path: dev → staging → prod
+  - Feature flag `wts.integration.enabled` in orders-microsite
+- Documentation complete:
+  - `README.md` in web-transaction-microsite covers architecture, dev setup, endpoints, security scopes
+  - `CHANGELOG.md` entry in orders-microsite documents the integration
+  - ADR created explaining fire-and-forget rationale and failure modes
+- E2E test passes: Docker Compose brings up Postgres + WTS + orders-microsite with WireMock, fake order creates `reconciliation_transaction` row that gets updated
+- CI green in RetailX for both microsites
 
 ## Open Questions
-1. Should the PUT endpoint return 404 if the reference doesn't exist, or 200 with a "not found" indicator in the response body?
-2. Are there specific enum values defined for `transactionType`, `externalReferenceType`, and `reconcileStatus`, or should these be created as part of this story?
-3. Should the `reference` field be unique in the database, or can multiple records share the same reference?
-4. What HTTP response code should be returned if enum validation fails in the service layer (invalid enum value passed) — 400 or 422?
-5. For the response DTO, should timestamp fields (`created`, `updated`) be formatted in ISO-8601 with timezone, or Unix epoch milliseconds?
-6. Is there an existing `@ControllerAdvice` or exception handler that maps `EntityNotFoundException` to 404, or does this need to be created?
-7. Should the `originalPayload` and `reconcilePayload` fields be required (`@NotNull`) or optional on create?
+1. Where should the ADR document be located — in orders-microsite, web-transaction-microsite, or a shared docs repo?
+2. What are the specific security scopes required for the WTS endpoints (referenced in README)?
+3. Does the existing Docker Compose setup need modification, or is a new compose file required for E2E testing?
+4. What is the expected timeout duration for the WireMock timeout failure stub?
+5. Are there existing microsite.yaml templates in the RetailX pipeline that should be followed, or is this greenfield?
+6. What Slack channel(s) should receive deployment notifications for each service?
+7. Should the feature flag default to enabled or disabled in each environment (dev/staging/prod)?
 
 ## Out-of-Scope
-- Integration tests with test database (assumed to be covered separately)
-- API documentation generation (Swagger/OpenAPI)
-- Rate limiting or throttling
-- Audit logging of changes
-- Soft delete functionality
+- Implementing application-level error handling or retry logic (fire-and-forget is already designed)
+- Setting up production database schemas or running migrations (only binding configuration)
+- Creating new CI/CD pipeline infrastructure (using existing RetailX pipeline)
+- Monitoring dashboards or metrics collection beyond deployment notifications
 
 ---
-_Reply on this ticket to refine. When you're happy, comment `APPROVED` (uppercase, standalone) and the workflow will move to the Plan phase._  
-_Job: wtr-4-xt19q0 · Ref: wtr-4-xt19q0:intake:1_
+_Reply on this ticket to refine. When you're happy, comment `APPROVED` (uppercase, standalone) and the workflow will move to the Plan phase._
+_Job: wtr-10-68hm6z · Ref: wtr-10-68hm6z:intake:1_
