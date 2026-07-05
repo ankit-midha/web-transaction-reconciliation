@@ -5,6 +5,60 @@ Target repo for the merged-SDLC agent orchestrator (see sibling
 opens PRs on, and pushes `<JIRA-KEY>-plan` / `<JIRA-KEY>-impl` branches to when a Jira
 ticket in the "Web Transaction Reconciliation" project transitions to READY FOR BUILD.
 
+## NMI Checksum Validation
+
+This repository includes an NMI (National Metering Identifier) parser with integrated checksum validation using the AEMO standard Luhn-like algorithm (Modulus 10, Double Add Double).
+
+### Features
+
+- **Checksum calculation** for 10-digit NMI base identifiers
+- **Validation** for both 10-digit and 11-digit NMIs
+- **Format validation** ensuring NMIs contain only digits and have correct length
+- **Silent failure mode** - invalid NMIs return `False` rather than throwing exceptions
+
+### Usage
+
+```python
+from src.nmi_parser import is_valid_nmi, parse_nmi
+
+# Simple validation
+is_valid_nmi("1234567890")      # True (10-digit, no checksum)
+is_valid_nmi("12345678903")     # True (11-digit with correct checksum)
+is_valid_nmi("12345678904")     # False (11-digit with incorrect checksum)
+is_valid_nmi("123")             # False (invalid length)
+
+# Detailed parsing
+result = parse_nmi("12345678903")
+# Returns: {'nmi': '12345678903', 'valid': True, 'has_checksum': True}
+```
+
+### NMI Format
+
+- **10-digit NMIs**: Always considered valid (no checksum digit to validate)
+- **11-digit NMIs**: The 11th digit is the checksum, validated against the first 10 digits
+
+### Checksum Algorithm
+
+The AEMO Luhn-like algorithm:
+1. Starting from the rightmost digit of the 10-digit base, double every second digit
+2. If doubling results in a two-digit number, add the digits together
+3. Sum all the resulting digits
+4. The checksum is `(10 - (sum % 10)) % 10`
+
+### Examples
+
+Valid NMIs:
+- `1234567890` (10-digit, no checksum)
+- `12345678903` (11-digit, checksum = 3)
+- `00000000000` (11-digit, checksum = 0)
+- `99999999990` (11-digit, checksum = 0)
+
+Invalid NMIs:
+- `12345678904` (incorrect checksum, expected 3)
+- `123` (too short)
+- `123456789012` (too long)
+- `123abc78901` (contains non-digits)
+
 ## The intake loop (implemented)
 
 ```
