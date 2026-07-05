@@ -1,53 +1,44 @@
-# Draft spec — WTR-2: Project scaffolding — Gradle + Docker Compose + JDK 17
+# Draft spec — WTR-3: Database schema — Flyway V1-V4 + JPA entity + repository
 
 ## Problem
-The web-transaction-microsite Spring Boot service does not exist yet. A foundational project structure is needed with the correct tech stack, build tooling, linting configuration, code coverage enforcement, local development infrastructure, and containerization setup.
+The Web Transaction Reconciliation system needs a persistence layer for tracking transaction reconciliation state. Currently there is no database schema or JPA mapping to store reconciliation transaction records.
 
 ## Goal
-A buildable, containerizable Spring Boot skeleton with enforced code quality gates, local Postgres infrastructure, and standard project files that can serve as the foundation for the Web Transaction Store service.
+Deliver a working database schema with Flyway migrations (V1-V4) and a fully-mapped JPA entity (`ReconciliationTransaction`) backed by a Spring Data repository, allowing the application to persist and query reconciliation transactions against Postgres 15.4 with optimistic locking support.
 
 ## Non-Goals
-- Implementing any business logic or API endpoints for the Web Transaction Store
-- Setting up CI/CD pipelines (configuration files may be added, but integration with CI systems is not in scope)
-- Deploying the service to any environment beyond local Docker Compose
-- Implementing database migrations or schema definitions
+- Implementation of business logic that uses the repository (service layer, controllers, reconciliation workflows)
+- The 29-table 3NF normalized schema described in V2 (this ticket delivers only a placeholder/stub)
+- Data migration from any existing system
+- Performance tuning beyond the specified indexes
 
 ## Users / Surfaces affected
-**Developers** working on the Web Transaction Store service will interact with:
-- Gradle build scripts (`settings.gradle.kts`, `build.gradle.kts`)
-- Local development environment via `docker compose up`
-- Code quality tools (Ktlint, Detekt, JaCoCo) during build and pre-commit
-- Dockerfile for local testing of containerized builds
-
-This is a greenfield project — no existing modules are affected.
+- **Module**: `src/main/resources/db/migration` — Flyway migration scripts
+- **Module**: JPA entity classes (Kotlin) — `ReconciliationTransaction`, enums `TransactionType`, `ExternalReferenceType`, `ReconcileStatus`
+- **Module**: Spring Data repository interface — `ReconciliationTransactionRepository`
+- **Surface**: Postgres 15.4 database — table `reconciliation_transaction` with indexes
 
 ## Acceptance Criteria
-- `gradlew build` succeeds locally without errors
-- `docker compose up` brings up a healthy Postgres 15.4 instance (and Zookeeper/Kafka if included)
-- `ktlint` runs as part of the build with zero violations
-- `detekt` runs as part of the build with zero violations
-- JaCoCo enforces 95% minimum coverage across instruction, line, method, and class metrics (build fails below threshold)
-- Multi-stage Dockerfile builds successfully and produces a runnable image based on Corretto 17 Alpine
-- Repository includes:
-  - Kotlin 1.9.23 source structure
-  - Spring Boot 3.3.12 dependencies
-  - Gradle wrapper (`gradlew`, `gradlew.bat`) checked in
-  - `.editorconfig` with reasonable defaults
-  - `.gitignore` appropriate for Gradle/Kotlin/IntelliJ projects
-  - `README.md` with setup instructions
+- Flyway 6.3.1 migrates cleanly against an empty Postgres 15.4 database
+- All four migrations (V1, V2, V3, V4) apply in sequence without error
+- The `reconciliation_transaction` table exists with all specified columns, indexes, and constraints after V4
+- JPA entity `ReconciliationTransaction` maps to the table with `@Version` annotation
+- Repository method `findByReference(reference: String)` exists and is callable
+- Optimistic locking works: concurrent updates to the same row throw `OptimisticLockException`
+- Database grants are applied as specified in V1
 
 ## Open Questions
-1. **Gradle DSL preference**: Should the build use Groovy DSL or Kotlin DSL? (Deliverables mention "Groovy or Kotlin DSL" — which is preferred?)
-2. **Kafka inclusion**: Should the Docker Compose file include Zookeeper + Kafka from the start, or only Postgres 15.4? (Ticket says "if needed" — is it needed for this initial scaffold?)
-3. **Project structure**: Should this follow a specific package naming convention (e.g., `com.example.webtransaction`, `com.<org>.wts`) or is that defined elsewhere?
-4. **Spring Boot starters**: Beyond the base Spring Boot 3.3.12 BOM, which starters should be included initially? (e.g., `spring-boot-starter-web`, `spring-boot-starter-data-jpa`, `spring-boot-starter-actuator`?)
-5. **JaCoCo 95% threshold**: Since this is an empty skeleton with no business logic, how should the 95% threshold be met initially? Should there be a minimal "hello world" controller/test, or should the threshold be lowered for this ticket and raised in later stories?
-6. **Ktlint version discrepancy**: Ticket specifies Ktlint 11.3.2, but the latest stable Ktlint release is 1.x (as of early 2025). Should this be Ktlint 1.1.1 or similar, or is 11.3.2 correct?
+1. **V1 grants**: Which database user/role should receive the grants? Should this be parameterized or hardcoded?
+2. **V2 placeholder**: Should V2 contain an empty file, a comment-only stub, or a minimal skeleton (e.g., one placeholder table)? What is acceptable to keep Flyway happy?
+3. **V3 column rename**: The migration renames `internal_reference_type` → `external_reference_type`, but V1 already creates `external_reference_type`. Is V3 a no-op for the rename, or should V1 create `internal_reference_type` instead?
+4. **V4 version column**: V4 adds a `version` column, but V1 already includes `version BIGINT DEFAULT 0`. Is V4 a no-op for the version column, or should V1 omit it?
+5. **Kotlin entity**: Should `ReconciliationTransaction` be a Kotlin `data class` or a regular `class`? (JPA entities as data classes have caveats around proxying and lazy loading.)
+6. **TransactionType enum values**: The ticket lists `WEB_ELECTRICITY_ORDER etc.` — what is the full list of enum values?
+7. **Repository package**: Where should `ReconciliationTransactionRepository` live? (e.g., `com.example.repository`, or another package structure?)
+8. **Timezone for timestamps**: Should `created` and `updated` use `TIMESTAMP` (no timezone) or `TIMESTAMPTZ` (with timezone)?
 
 ## Out-of-Scope
-- Application properties configuration for external environments (production, staging)
-- Authentication, authorization, or security configuration
-- API documentation tooling (Swagger/OpenAPI)
-- Observability instrumentation (logging, metrics, tracing beyond Spring Boot defaults)
-- Database schema or Flyway/Liquibase migration setup
-- Integration with external services or message brokers beyond local Docker Compose
+- Unit or integration tests for the repository (acceptance criterion focuses on Flyway + locking behavior, not test coverage)
+- Audit logging or triggers on the `reconciliation_transaction` table
+- Liquibase or other migration tooling (Flyway 6.3.1 is specified)
+- Read replicas, partitioning, or other database topology concerns

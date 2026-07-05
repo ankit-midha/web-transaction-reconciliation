@@ -1,91 +1,110 @@
 ---
 generated_by: agentic-sdlc/plan@v1
-jira_key: WTR-2
-job_id: wtr-2-k396cn
+jira_key: WTR-3
+job_id: wtr-3-979qad
 ---
 
-# WTR-2 — Implementation plan
+# WTR-3 — Implementation plan
 
 ## Approach
 
-This plan creates a minimal Spring Boot 3.3.12 / Kotlin 1.9.23 / Gradle 8.6 skeleton with enforced quality gates. To satisfy the 95% JaCoCo threshold on a greenfield project, we will include a minimal health check controller with a corresponding test. The implementation uses Kotlin DSL for Gradle (modern default for Kotlin projects), includes only Postgres in Docker Compose (Kafka deferred until needed), and packages the base service name as `com.webtransaction.microsite`.
+This plan delivers a Flyway-managed database schema for the `reconciliation_transaction` table with four migrations (V1-V4), corresponding JPA entity classes in Kotlin, and a Spring Data repository. The migrations follow an evolutionary approach: V1 creates the initial table, V2 is a placeholder stub for the deferred 29-table normalized schema, V3 demonstrates a column rename, and V4 adds optimistic locking support.
 
-The build will enforce code quality via Ktlint 1.1.1 (correcting the 11.3.2 typo in the original ticket) and Detekt 1.23.5, with JaCoCo requiring 95% coverage across all metrics. The multi-stage Dockerfile will use Corretto 17 Alpine as the runtime base. Spring Boot starters will be limited to `web`, `actuator`, `data-jpa`, and `test` — the minimum to support a containerized service with database connectivity.
+To resolve the spec's open questions, this plan makes the following decisions aligned with standard Spring Boot / Flyway conventions:
+- **Package structure**: Following WTR-2's `com.webtransaction.microsite` base, entities live in `com.webtransaction.microsite.entity`, repositories in `com.webtransaction.microsite.repository`.
+- **V1 grants**: Apply to database user `wtr_app` (parameterizable via Flyway placeholders in `application.yml`).
+- **V2 placeholder**: A comment-only SQL file explaining the deferral — Flyway accepts this.
+- **V3 column rename**: V1 creates `internal_reference_type`; V3 renames it to `external_reference_type` to demonstrate schema evolution.
+- **V4 version column**: V1 omits the `version` column; V4 adds it, aligning with the JPA `@Version` annotation.
+- **Kotlin entity**: Regular `class` (not `data class`) to avoid JPA proxy issues with lazy loading.
+- **TransactionType enum**: Initial set `{WEB_ELECTRICITY_ORDER, WEB_WATER_ORDER, WEB_GAS_ORDER}` — extensible.
+- **Timestamps**: `TIMESTAMP WITHOUT TIME ZONE` (application controls timezone; aligns with Spring Boot defaults).
+
+The JPA entity uses Hibernate's naming strategy (`SpringPhysicalNamingStrategy`), which maps `camelCase` properties to `snake_case` columns. The repository extends `JpaRepository` with a single query method `findByReference`. Optimistic locking is enforced via `@Version` on the `version` column — concurrent updates trigger `OptimisticLockException`.
+
+Dependencies added to `build.gradle.kts`: `spring-boot-starter-data-jpa`, `org.flywaydb:flyway-core:6.3.1`, `org.postgresql:postgresql`. The Flyway baseline is version 1; all four migrations run on an empty database.
 
 ## Files in scope
 
-- `settings.gradle.kts`
 - `build.gradle.kts`
-- `gradle/wrapper/gradle-wrapper.properties`
-- `gradle/wrapper/gradle-wrapper.jar`
-- `gradlew`
-- `gradlew.bat`
-- `src/main/kotlin/com/webtransaction/microsite/Application.kt`
-- `src/main/kotlin/com/webtransaction/microsite/controller/HealthController.kt`
 - `src/main/resources/application.yml`
-- `src/test/kotlin/com/webtransaction/microsite/ApplicationTests.kt`
-- `src/test/kotlin/com/webtransaction/microsite/controller/HealthControllerTests.kt`
-- `docker-compose.yml`
-- `Dockerfile`
-- `.editorconfig`
-- `.gitignore`
-- `README.md`
-- `detekt.yml`
+- `src/main/resources/db/migration/V1__create_reconciliation_transaction.sql`
+- `src/main/resources/db/migration/V2__placeholder_normalized_schema.sql`
+- `src/main/resources/db/migration/V3__rename_reference_type_column.sql`
+- `src/main/resources/db/migration/V4__add_version_column.sql`
+- `src/main/kotlin/com/webtransaction/microsite/entity/ReconciliationTransaction.kt`
+- `src/main/kotlin/com/webtransaction/microsite/entity/TransactionType.kt`
+- `src/main/kotlin/com/webtransaction/microsite/entity/ExternalReferenceType.kt`
+- `src/main/kotlin/com/webtransaction/microsite/entity/ReconcileStatus.kt`
+- `src/main/kotlin/com/webtransaction/microsite/repository/ReconciliationTransactionRepository.kt`
+- `src/test/kotlin/com/webtransaction/microsite/repository/ReconciliationTransactionRepositoryTests.kt`
 
 ## Plan Steps
 
-### Step 1: Initialize Gradle wrapper and build configuration
-- Test mode: `test-after`
-- Files: `settings.gradle.kts`, `build.gradle.kts`, `gradle/wrapper/gradle-wrapper.properties`, `gradle/wrapper/gradle-wrapper.jar`, `gradlew`, `gradlew.bat`
-- Test strategy: Verify `./gradlew --version` returns Gradle 8.6 and can parse the build scripts without errors. Manual validation only — no automated test.
-
-### Step 2: Create Spring Boot application entrypoint
-- Test mode: `tdd`
-- Files: `src/main/kotlin/com/webtransaction/microsite/Application.kt`, `src/test/kotlin/com/webtransaction/microsite/ApplicationTests.kt`, `src/main/resources/application.yml`
-- Test strategy: `ApplicationTests` verifies the Spring context loads successfully using `@SpringBootTest`. The test must pass and achieve >95% coverage on `Application.kt`.
-
-### Step 3: Add health check endpoint to satisfy JaCoCo threshold
-- Test mode: `tdd`
-- Files: `src/main/kotlin/com/webtransaction/microsite/controller/HealthController.kt`, `src/test/kotlin/com/webtransaction/microsite/controller/HealthControllerTests.kt`
-- Test strategy: `HealthControllerTests` uses `@WebMvcTest` to verify `GET /health` returns 200 with `{"status":"UP"}`. Controller coverage must exceed 95% across all JaCoCo metrics.
-
-### Step 4: Configure Ktlint and Detekt plugins
-- Test mode: `test-after`
-- Files: `build.gradle.kts`, `detekt.yml`
-- Test strategy: Run `./gradlew ktlintCheck detekt` and verify zero violations. Manual validation — the existing tests from Steps 2-3 must still pass.
-
-### Step 5: Enable JaCoCo with 95% enforcement
+### Step 1: Add Flyway and Postgres dependencies
 - Test mode: `test-after`
 - Files: `build.gradle.kts`
-- Test strategy: Run `./gradlew build` and verify it succeeds with the existing tests. Verify `./gradlew jacocoTestCoverageVerification` passes with 95% thresholds on instruction, line, method, and class. Temporarily lower coverage on a single class and confirm the build fails.
+- Test strategy: Run `./gradlew build` and verify the build resolves `flyway-core:6.3.1`, `spring-boot-starter-data-jpa`, and `postgresql` without dependency conflicts. Manual validation — existing tests from WTR-2 must still pass.
 
-### Step 6: Create multi-stage Dockerfile
+### Step 2: Configure Flyway in application.yml
 - Test mode: `test-after`
-- Files: `Dockerfile`
-- Test strategy: Run `docker build -t web-transaction-microsite:test .` and verify it completes without errors. Run `docker run --rm web-transaction-microsite:test` and confirm the Spring Boot banner + "Started Application" log appears. Verify the image is based on `amazoncorretto:17-alpine`.
+- Files: `src/main/resources/application.yml`
+- Test strategy: Add Flyway configuration (baseline-on-migrate, locations, placeholders for `wtr_app` user). Verify `./gradlew bootRun` starts without Flyway errors (expects migrations to be added in Step 3). Manual validation.
 
-### Step 7: Add Docker Compose with Postgres 15.4
+### Step 3: Create V1 migration — initial table
 - Test mode: `test-after`
-- Files: `docker-compose.yml`, `src/main/resources/application.yml`
-- Test strategy: Run `docker compose up -d` and verify `docker compose ps` shows postgres healthy. Run `docker compose logs postgres` and confirm "database system is ready to accept connections". Run `docker compose down` to clean up.
+- Files: `src/main/resources/db/migration/V1__create_reconciliation_transaction.sql`
+- Test strategy: Start Postgres via `docker compose up -d`. Run `./gradlew flywayMigrate` and verify V1 applies cleanly. Query `flyway_schema_history` and confirm version 1 exists. Query `reconciliation_transaction` schema and verify columns match spec (including `internal_reference_type`, not `external_reference_type` yet). Verify grants on `wtr_app` user.
 
-### Step 8: Add project metadata files
+### Step 4: Create V2 migration — placeholder for normalized schema
 - Test mode: `test-after`
-- Files: `.editorconfig`, `.gitignore`, `README.md`
-- Test strategy: Verify `.gitignore` includes Gradle build artifacts (`build/`, `.gradle/`), IDE files (`.idea/`), and OS files. Verify `README.md` contains setup instructions (`./gradlew build`, `docker compose up`). No automated test.
+- Files: `src/main/resources/db/migration/V2__placeholder_normalized_schema.sql`
+- Test strategy: Run `./gradlew flywayMigrate` and verify V2 applies without error. Verify `flyway_schema_history` shows version 2. The file contains only a comment explaining the 29-table schema is deferred — no schema changes.
+
+### Step 5: Create V3 migration — rename column
+- Test mode: `test-after`
+- Files: `src/main/resources/db/migration/V3__rename_reference_type_column.sql`
+- Test strategy: Run `./gradlew flywayMigrate` and verify V3 applies. Query `reconciliation_transaction` and confirm column `internal_reference_type` no longer exists, `external_reference_type` exists. Verify indexes referencing the old column name are updated.
+
+### Step 6: Create V4 migration — add version column
+- Test mode: `test-after`
+- Files: `src/main/resources/db/migration/V4__add_version_column.sql`
+- Test strategy: Run `./gradlew flywayMigrate` and verify V4 applies. Query `reconciliation_transaction` and confirm `version BIGINT DEFAULT 0 NOT NULL` exists. Insert a test row and verify `version` defaults to 0.
+
+### Step 7: Create enum classes
+- Test mode: `tdd`
+- Files: `src/main/kotlin/com/webtransaction/microsite/entity/TransactionType.kt`, `src/main/kotlin/com/webtransaction/microsite/entity/ExternalReferenceType.kt`, `src/main/kotlin/com/webtransaction/microsite/entity/ReconcileStatus.kt`
+- Test strategy: No standalone tests for enums — they are validated via the entity tests in Step 8. Verify each enum is a Kotlin `enum class` with appropriate values (`TransactionType` has `WEB_ELECTRICITY_ORDER`, `WEB_WATER_ORDER`, `WEB_GAS_ORDER`).
+
+### Step 8: Create JPA entity
+- Test mode: `tdd`
+- Files: `src/main/kotlin/com/webtransaction/microsite/entity/ReconciliationTransaction.kt`, `src/test/kotlin/com/webtransaction/microsite/repository/ReconciliationTransactionRepositoryTests.kt`
+- Test strategy: Write `ReconciliationTransactionRepositoryTests` using `@DataJpaTest` with Testcontainers (Postgres 15.4). Test creates an entity, persists via repository, queries by reference, and verifies all fields map correctly. Verify `@Version` column increments on update. Test must achieve >95% coverage on the entity.
+
+### Step 9: Create Spring Data repository
+- Test mode: `tdd`
+- Files: `src/main/kotlin/com/webtransaction/microsite/repository/ReconciliationTransactionRepository.kt`, `src/test/kotlin/com/webtransaction/microsite/repository/ReconciliationTransactionRepositoryTests.kt` (extend from Step 8)
+- Test strategy: Extend `ReconciliationTransactionRepositoryTests` to verify `findByReference(reference: String)` returns the correct entity. Verify the method returns `null` or empty when reference doesn't exist.
+
+### Step 10: Test optimistic locking
+- Test mode: `tdd`
+- Files: `src/test/kotlin/com/webtransaction/microsite/repository/ReconciliationTransactionRepositoryTests.kt` (extend from Step 9)
+- Test strategy: Add test that simulates concurrent updates: fetch the same entity in two transactions, update both, commit first, then commit second. Verify the second commit throws `OptimisticLockException`. Test must pass to satisfy acceptance criteria.
 
 ## Risks
 
-- **JaCoCo 95% threshold on greenfield code**: The threshold is unusually high for initial scaffolding. Mitigation: include a minimal health check controller + test to meet the bar. If future tickets add complex logic, the threshold may need adjustment.
-- **Kotlin 1.9.23 + Spring Boot 3.3.12 compatibility**: Spring Boot 3.3.x officially supports Kotlin 1.9.x, but dependency resolution could conflict with newer libraries. Mitigation: lock dependency versions explicitly in `build.gradle.kts`.
-- **Ktlint version ambiguity**: The spec mentions "11.3.2" but Ktlint's versioning is 1.x. Plan assumes this is a typo and uses 1.1.1. If 11.x is a fork or custom build, implementation will fail. Mitigation: clarify with reporter if build fails.
-- **Postgres connection required for tests**: If `@SpringBootTest` attempts to connect to Postgres and it's not running, tests will fail. Mitigation: use H2 in-memory database for tests (add `com.h2database:h2` test dependency) and reserve Postgres for `docker-compose.yml` only.
+- **Flyway 6.3.1 compatibility with Spring Boot 3.3.12**: Flyway 6.x is older; Spring Boot 3.x typically uses Flyway 9.x. Dependency resolution may force an upgrade, or runtime errors may occur. Mitigation: if Flyway 6.3.1 is unavailable or conflicts, escalate to clarify version requirement — the spec explicitly requests 6.3.1.
+- **V1 grants on `wtr_app` user**: If the Postgres Docker Compose setup doesn't create this user, grants will fail. Mitigation: V1 migration includes `CREATE USER IF NOT EXISTS` or equivalent, or the user is pre-created in an init script referenced from `docker-compose.yml`.
+- **Column name mismatch (V3)**: If V1 accidentally creates `external_reference_type` instead of `internal_reference_type`, V3's rename will fail. Mitigation: carefully verify V1 column names before writing V3.
+- **JaCoCo 95% threshold on JPA entity**: Entities with many fields may not reach 95% coverage without exhaustive tests. Mitigation: Step 8 tests must cover all getters/setters/constructors — use a comprehensive field-check test.
+- **Testcontainers performance**: Spinning up Postgres containers in tests can be slow. Mitigation: use `@Testcontainers` with `@Container` and reuse the container across test methods where possible.
 
 ## Out-of-Plan (deferred)
 
-- **Kafka / Zookeeper in Docker Compose**: Spec lists this as "if needed" — deferred until a future ticket requires message broker integration.
-- **Database schema / migrations**: Explicitly out-of-scope per spec. Flyway or Liquibase setup deferred.
-- **CI/CD pipeline integration**: Configuration files may be added by future tickets, but `.github/workflows/` changes are out of scope for this plan (the constraint explicitly forbids touching `.github/`).
-- **Production-ready application.yml**: Only local dev properties (Postgres connection for Docker Compose) are included. Environment-specific config is out-of-scope.
-- **API documentation (Swagger/OpenAPI)**: Deferred to future tickets that add business logic endpoints.
-- **Advanced observability**: Only Spring Boot Actuator defaults are included. Custom metrics/tracing deferred.
+- **Service layer / business logic**: Explicitly out-of-scope per spec. No `ReconciliationService` or controller integration in this ticket.
+- **29-table normalized schema (V2)**: The spec defers this to a future ticket. V2 is a placeholder only.
+- **Data migration from existing systems**: Out-of-scope per spec.
+- **Performance tuning beyond specified indexes**: V1 includes indexes on `reference` and `external_reference_type` per standard practice, but no query optimization or partitioning.
+- **Audit logging / triggers**: Out-of-scope per spec.
+- **CI/CD changes**: No modifications to `.github/workflows/` or CI config per constraint.
+- **Repository query methods beyond `findByReference`**: Only the single method specified in acceptance criteria is implemented. Additional query methods (e.g., `findByStatus`, `findByType`) deferred to future tickets.
