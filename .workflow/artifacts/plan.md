@@ -1,123 +1,125 @@
 ---
 generated_by: agentic-sdlc/plan@v1
-jira_key: WTR-4
-job_id: wtr-4-xt19q0
+jira_key: WTR-5
+job_id: wtr-5-b6qs89
 ---
 
-# WTR-4 — Implementation plan
+# WTR-5 — Implementation plan
 
 ## Approach
 
-This plan delivers a REST API for the Web Transaction Store with four endpoints (POST create, GET by ID, GET by reference, PUT by reference), implementing the controller-service-repository pattern standard in Spring Boot applications. Building on WTR-3's JPA entity and repository foundation, this ticket adds the web layer and service layer with validation.
+This plan secures the Web Transaction Store API with OAuth2 JWT authentication, implements consistent exception handling, and exposes Spring Actuator endpoints for operational monitoring. Building on WTR-4's REST API foundation, this ticket adds the security and observability layers standard in production Spring Boot services.
 
-To resolve the spec's open questions, this plan makes the following decisions aligned with Spring Boot conventions:
+The implementation follows Spring Security 6.x conventions with resource server configuration for JWT validation. OAuth2 scopes (`read:web-transaction`, `write:web-transaction`) control access: read scope permits GET operations, write scope permits POST/PUT operations. The security configuration validates JWT signatures against a configured issuer URI (externally managed identity provider), extracts scopes from the `scope` claim, and enforces method-level authorization via `@PreAuthorize` annotations.
 
-- **PUT 404 behavior**: Returns 404 if the reference doesn't exist (REST convention: PUT on non-existent resource is an error).
-- **Enum values**: Re-use the enums from WTR-3 (`TransactionType`, `ExternalReferenceType`, `ReconcileStatus`). WTR-3 defined these with initial values — this plan assumes they exist.
-- **Reference uniqueness**: Treat `reference` as a lookup key (not enforced unique in DB per WTR-3, but typically only one record per reference in practice). GET by reference returns the first match; if multiple exist, this is a data quality issue outside this ticket's scope.
-- **Enum validation response code**: Return 400 (Bad Request) for invalid enum values — these are client input errors, same as missing required fields.
-- **Timestamp format**: ISO-8601 with timezone (e.g., `2026-07-05T14:23:01Z`) — Spring Boot's Jackson defaults serialize `Instant` / `LocalDateTime` this way.
-- **Exception handler**: Create a `@RestControllerAdvice` class to map `EntityNotFoundException` → 404, `MethodArgumentNotValidException` → 400 with field details, and other exceptions to 500.
-- **Payload optionality**: `originalPayload` is required on create (cannot be null). `reconcilePayload` is optional (can be null initially, populated later via PUT).
+To resolve the spec's open questions, this plan makes the following decisions aligned with Spring Boot and OAuth2 best practices:
 
-The service layer wraps the repository with domain validation: enum deserialization, length checks (delegated to Bean Validation), and existence checks (throwing `EntityNotFoundException` when a reference is not found). The controller delegates all business logic to the service, keeping controller methods thin (single responsibility: HTTP marshalling).
+- **Issuer configuration**: Single issuer per environment via `spring.security.oauth2.resourceserver.jwt.issuer-uri` property. Default to `https://auth.example.com` (placeholder). Actual issuer URIs will be set via environment-specific application-{env}.yml files or environment variables (e.g., `JWT_ISSUER_URI`). Multi-issuer support deferred as out-of-scope.
+- **Audience validation**: Audience claim (`aud`) validation enabled with fixed value `web-transaction-api` (no environment prefix). Configured via `spring.security.oauth2.resourceserver.jwt.audiences` property.
+- **Protected endpoints**: Apply scope checks at controller method level using `@PreAuthorize("hasAuthority('SCOPE_read:web-transaction')")` for GET methods and `@PreAuthorize("hasAuthority('SCOPE_write:web-transaction')")` for POST/PUT methods. This provides fine-grained control and makes authorization explicit in code.
+- **Error response format**: Strict `{ "error": "..." }` format (no timestamp/path/status fields). Keeps responses lightweight and focused. Custom `@RestControllerAdvice` handler formats all exceptions consistently.
+- **Git build info**: Use Spring Boot Actuator's built-in git information support via `spring-boot-maven-plugin` (or `gradle-git-properties` plugin for Gradle). Generates `git.properties` file at build time, automatically exposed at `/info` when `management.info.git.mode=full`.
 
-DTOs use Kotlin data classes with Jackson annotations for JSON serialization. JSONB fields (`originalPayload`, `reconcilePayload`) map to `Map<String, Any?>` in Kotlin, serialized by Jackson's `ObjectMapper` to preserve nested structure. The repository layer (from WTR-3) already handles Postgres JSONB via Hibernate's `@JdbcTypeCode(SqlTypes.JSON)`.
+The global exception handler (`GlobalExceptionHandler`) centralizes error response formatting for all controller exceptions: `EntityNotFoundException` → 404, `MethodArgumentNotValidException` → 400 with field-level details, `HttpMessageNotReadableException` → 400 with sanitized message (to avoid leaking stack traces), `AccessDeniedException` → 403, generic exceptions → 500. This handler is a `@RestControllerAdvice` class that intercepts exceptions before they reach the default Spring error handler, ensuring consistent JSON structure.
 
-Dependencies: `spring-boot-starter-web` (already implicit in Spring Boot starters), `spring-boot-starter-validation` for Bean Validation (`@Valid`, `@NotBlank`, `@Size`). No new Gradle dependencies required beyond what WTR-3 added.
+Spring Actuator endpoints (`/actuator/health`, `/actuator/info`) are exposed via `management.endpoints.web.exposure.include=health,info` and explicitly permitted in the security configuration (no JWT required). The `/health` endpoint returns simple UP/DOWN status by default. The `/info` endpoint exposes git commit hash, branch, and build time (sourced from `git.properties`).
 
-Package structure (aligning with WTR-3's `com.webtransaction.microsite.*`):
-- `com.webtransaction.microsite.controller.WebTransactionController`
-- `com.webtransaction.microsite.service.WebTransactionService`
-- `com.webtransaction.microsite.dto.CreateWebTransactionRequest`
-- `com.webtransaction.microsite.dto.UpdateWebTransactionRequest`
-- `com.webtransaction.microsite.dto.WebTransactionResponse`
-- `com.webtransaction.microsite.exception.EntityNotFoundException`
-- `com.webtransaction.microsite.exception.GlobalExceptionHandler`
+Security is conditionally disabled in local and test profiles via `@ConditionalOnProperty(name = "security.enabled", havingValue = "true", matchIfMissing = true)`. When `security.enabled=false` (set in `application-local.yml` and `application-test.yml`), the security filter chain is not registered, allowing unauthenticated access for local development and unit tests.
+
+Dependencies: `spring-boot-starter-security`, `spring-boot-starter-oauth2-resource-server` (for JWT validation), `spring-boot-starter-actuator` (for health/info endpoints). Assume Gradle Kotlin DSL; dependencies added to `build.gradle.kts`.
+
+Package structure (extending WTR-4's `com.webtransaction.microsite.*`):
+- `com.webtransaction.microsite.config.SecurityConfig` — OAuth2 resource server configuration
+- `com.webtransaction.microsite.exception.GlobalExceptionHandler` — extends WTR-4's exception handler with 401/403 handling
+- Controller method annotations — add `@PreAuthorize` to existing `WebTransactionController` methods
+- `src/main/resources/application.yml` — security properties (issuer URI, audience)
+- `src/main/resources/application-local.yml` — `security.enabled=false`
+- `src/main/resources/application-test.yml` — `security.enabled=false`
 
 ## Files in scope
 
-- `src/main/kotlin/com/webtransaction/microsite/controller/WebTransactionController.kt`
-- `src/main/kotlin/com/webtransaction/microsite/service/WebTransactionService.kt`
-- `src/main/kotlin/com/webtransaction/microsite/dto/CreateWebTransactionRequest.kt`
-- `src/main/kotlin/com/webtransaction/microsite/dto/UpdateWebTransactionRequest.kt`
-- `src/main/kotlin/com/webtransaction/microsite/dto/WebTransactionResponse.kt`
-- `src/main/kotlin/com/webtransaction/microsite/exception/EntityNotFoundException.kt`
-- `src/main/kotlin/com/webtransaction/microsite/exception/GlobalExceptionHandler.kt`
-- `src/test/kotlin/com/webtransaction/microsite/controller/WebTransactionControllerTests.kt`
-- `src/test/kotlin/com/webtransaction/microsite/service/WebTransactionServiceTests.kt`
+- `build.gradle.kts` — add security and actuator dependencies
+- `src/main/kotlin/com/webtransaction/microsite/config/SecurityConfig.kt`
+- `src/main/kotlin/com/webtransaction/microsite/exception/GlobalExceptionHandler.kt` — extend from WTR-4
+- `src/main/kotlin/com/webtransaction/microsite/controller/WebTransactionController.kt` — add @PreAuthorize annotations
+- `src/main/resources/application.yml`
+- `src/main/resources/application-local.yml`
+- `src/main/resources/application-test.yml`
+- `src/test/kotlin/com/webtransaction/microsite/config/SecurityConfigTests.kt`
+- `src/test/kotlin/com/webtransaction/microsite/controller/WebTransactionControllerSecurityTests.kt`
 
 ## Plan Steps
 
-### Step 1: Create EntityNotFoundException
+### Step 1: Add security and actuator dependencies
 - Test mode: `test-after`
-- Files: `src/main/kotlin/com/webtransaction/microsite/exception/EntityNotFoundException.kt`
-- Test strategy: No standalone test for this exception class. Verified in Step 7 (service layer tests) where it is thrown and caught. Simple runtime exception extending `RuntimeException` with a message parameter.
+- Files: `build.gradle.kts`
+- Test strategy: No standalone test for dependency addition. Verified in Step 3+ when security classes compile and tests reference Spring Security annotations. Add `spring-boot-starter-security`, `spring-boot-starter-oauth2-resource-server`, `spring-boot-starter-actuator` to `dependencies` block. Add `spring-security-test` to `testImplementation`.
 
-### Step 2: Create GlobalExceptionHandler
-- Test mode: `tdd`
-- Files: `src/main/kotlin/com/webtransaction/microsite/exception/GlobalExceptionHandler.kt`, `src/test/kotlin/com/webtransaction/microsite/controller/WebTransactionControllerTests.kt`
-- Test strategy: Write controller tests that trigger exceptions (`EntityNotFoundException`, `MethodArgumentNotValidException`, generic exceptions) and verify response structure and status codes. `@RestControllerAdvice` handler must map: `EntityNotFoundException` → 404 with `{"error": "..."}`, `MethodArgumentNotValidException` → 400 with `{"error": "...", "details": {"field": "message"}}`, other exceptions → 500 with `{"error": "Internal server error"}`.
-
-### Step 3: Create DTOs
+### Step 2: Create application properties files
 - Test mode: `test-after`
-- Files: `src/main/kotlin/com/webtransaction/microsite/dto/CreateWebTransactionRequest.kt`, `src/main/kotlin/com/webtransaction/microsite/dto/UpdateWebTransactionRequest.kt`, `src/main/kotlin/com/webtransaction/microsite/dto/WebTransactionResponse.kt`
-- Test strategy: DTOs are Kotlin data classes with Bean Validation annotations (`@NotBlank`, `@Size`, `@NotNull`). No standalone tests — validation is exercised via controller tests in Step 8. Verify structure: `CreateWebTransactionRequest` has all entity fields except `id`/`version`/timestamps. `UpdateWebTransactionRequest` has only `reconcileStatus` and `externalReferenceNumber`. `WebTransactionResponse` mirrors entity structure with ISO-8601 timestamps.
+- Files: `src/main/resources/application.yml`, `src/main/resources/application-local.yml`, `src/main/resources/application-test.yml`
+- Test strategy: No standalone test for properties files. Verified in Step 6 when integration tests load profiles and security is conditionally disabled. `application.yml` sets `spring.security.oauth2.resourceserver.jwt.issuer-uri` (placeholder `https://auth.example.com`), `spring.security.oauth2.resourceserver.jwt.audiences=web-transaction-api`, `management.endpoints.web.exposure.include=health,info`, `management.info.git.mode=full`, `security.enabled=true`. `application-local.yml` and `application-test.yml` set `security.enabled=false`.
 
-### Step 4: Create WebTransactionService — create operation
+### Step 3: Create SecurityConfig
 - Test mode: `tdd`
-- Files: `src/main/kotlin/com/webtransaction/microsite/service/WebTransactionService.kt`, `src/test/kotlin/com/webtransaction/microsite/service/WebTransactionServiceTests.kt`
-- Test strategy: Write `WebTransactionServiceTests` using `@MockBean` for the repository (from WTR-3). Test `createTransaction(request: CreateWebTransactionRequest): WebTransactionResponse` maps DTO → entity, saves via repository, returns response DTO. Verify JSONB fields (`originalPayload`, `reconcilePayload`) preserve nested map structure. Verify enum values are correctly mapped. Test must cover happy path and invalid enum values (should throw IllegalArgumentException, which triggers 400 via exception handler).
+- Files: `src/main/kotlin/com/webtransaction/microsite/config/SecurityConfig.kt`, `src/test/kotlin/com/webtransaction/microsite/config/SecurityConfigTests.kt`
+- Test strategy: Write `SecurityConfigTests` using `@SpringBootTest` and `@TestPropertySource` to verify security filter chain is registered when `security.enabled=true` and skipped when `security.enabled=false`. Use `MockMvc` to test that `/actuator/health` and `/actuator/info` are accessible without JWT (return 200), while `/v1/webtransaction/**` returns 401 without JWT. `SecurityConfig` is a `@Configuration` class annotated with `@ConditionalOnProperty(name = "security.enabled", havingValue = "true", matchIfMissing = true)` and `@EnableMethodSecurity(prePostEnabled = true)`. Defines a `SecurityFilterChain` bean with `oauth2ResourceServer { jwt {} }` configuration and permits `/actuator/health`, `/actuator/info` while requiring authentication for all other requests.
 
-### Step 5: Create WebTransactionService — read operations
+### Step 4: Update GlobalExceptionHandler for security exceptions
 - Test mode: `tdd`
-- Files: `src/main/kotlin/com/webtransaction/microsite/service/WebTransactionService.kt`, `src/test/kotlin/com/webtransaction/microsite/service/WebTransactionServiceTests.kt` (extend from Step 4)
-- Test strategy: Add `getTransactionById(id: Long): WebTransactionResponse` and `getTransactionByReference(reference: String): WebTransactionResponse`. Both throw `EntityNotFoundException` when not found. Tests mock repository methods (`findById`, `findByReference` from WTR-3) and verify exception is thrown for missing entities, response DTO is returned for found entities.
+- Files: `src/main/kotlin/com/webtransaction/microsite/exception/GlobalExceptionHandler.kt` (extend from WTR-4)
+- Test strategy: Extend WTR-4's `GlobalExceptionHandler` to handle `AccessDeniedException` (403 Forbidden) and `AuthenticationException` (401 Unauthorized). Write tests in `SecurityConfigTests` that trigger these exceptions via MockMvc and verify response structure matches `{ "error": "<message>" }`. Also add handler for `HttpMessageNotReadableException` (400 Bad Request) with sanitized message (spec requirement for malformed JSON/invalid enum values).
 
-### Step 6: Create WebTransactionService — update operation
+### Step 5: Add @PreAuthorize annotations to controller methods
 - Test mode: `tdd`
-- Files: `src/main/kotlin/com/webtransaction/microsite/service/WebTransactionService.kt`, `src/test/kotlin/com/webtransaction/microsite/service/WebTransactionServiceTests.kt` (extend from Step 5)
-- Test strategy: Add `updateTransactionByReference(reference: String, request: UpdateWebTransactionRequest): WebTransactionResponse`. Method fetches entity by reference (throws `EntityNotFoundException` if not found), updates only `reconcileStatus` and `externalReferenceNumber` fields, saves, returns response DTO. Test verifies partial update (other fields unchanged), exception thrown for missing reference, optimistic locking version increments.
+- Files: `src/main/kotlin/com/webtransaction/microsite/controller/WebTransactionController.kt`, `src/test/kotlin/com/webtransaction/microsite/controller/WebTransactionControllerSecurityTests.kt`
+- Test strategy: Write `WebTransactionControllerSecurityTests` using `@WebMvcTest` with `@WithMockUser` (from `spring-security-test`) to simulate JWT tokens with different scopes. Test that GET endpoints require `SCOPE_read:web-transaction` authority, POST/PUT endpoints require `SCOPE_write:web-transaction` authority. Verify 403 responses when scope is insufficient, 200/201 when scope is sufficient. Annotate `WebTransactionController` GET methods with `@PreAuthorize("hasAuthority('SCOPE_read:web-transaction')")` and POST/PUT methods with `@PreAuthorize("hasAuthority('SCOPE_write:web-transaction')")`.
 
-### Step 7: Create WebTransactionController — POST endpoint
+### Step 6: Test actuator endpoints accessibility
 - Test mode: `tdd`
-- Files: `src/main/kotlin/com/webtransaction/microsite/controller/WebTransactionController.kt`, `src/test/kotlin/com/webtransaction/microsite/controller/WebTransactionControllerTests.kt`
-- Test strategy: Write `WebTransactionControllerTests` using `@WebMvcTest(WebTransactionController::class)` with `@MockBean` for service. Test `POST /v1/webtransaction` returns 201 with response body. Verify `@Valid` triggers 400 for missing required fields, violating `@Size` constraints (reference > 100 chars, externalReferenceNumber > 255 chars), and invalid enum values. Verify JSONB fields round-trip correctly in request/response.
+- Files: `src/test/kotlin/com/webtransaction/microsite/config/SecurityConfigTests.kt` (extend from Step 3)
+- Test strategy: Add tests to `SecurityConfigTests` verifying `/actuator/health` returns 200 with `{"status":"UP"}` structure and `/actuator/info` returns 200 with git metadata (if `git.properties` exists; mock or stub this file in test resources). Both endpoints must be accessible without JWT authentication. Test uses `MockMvc` with no `Authorization` header.
 
-### Step 8: Create WebTransactionController — GET endpoints
+### Step 7: Test security disabled in test profile
 - Test mode: `tdd`
-- Files: `src/main/kotlin/com/webtransaction/microsite/controller/WebTransactionController.kt`, `src/test/kotlin/com/webtransaction/microsite/controller/WebTransactionControllerTests.kt` (extend from Step 7)
-- Test strategy: Add `GET /v1/webtransaction/{id}` and `GET /v1/webtransaction/reference/{reference}`. Both return 200 with response body when found, 404 when not found (service throws `EntityNotFoundException`, caught by `GlobalExceptionHandler`). Tests verify path variable binding, 404 response structure matches `{"error": "..."}`.
+- Files: `src/test/kotlin/com/webtransaction/microsite/config/SecurityConfigTests.kt` (extend from Step 6)
+- Test strategy: Add test class with `@ActiveProfiles("test")` verifying all endpoints (including `/v1/webtransaction/**`) are accessible without JWT when `security.enabled=false`. Use MockMvc to verify 200 responses for GET/POST requests with no `Authorization` header. This ensures existing WTR-4 controller tests (which do not mock JWTs) continue to pass after security is added.
 
-### Step 9: Create WebTransactionController — PUT endpoint
+### Step 8: Test 401/403 error response structure
 - Test mode: `tdd`
-- Files: `src/main/kotlin/com/webtransaction/microsite/controller/WebTransactionController.kt`, `src/test/kotlin/com/webtransaction/microsite/controller/WebTransactionControllerTests.kt` (extend from Step 8)
-- Test strategy: Add `PUT /v1/webtransaction/reference/{reference}`. Returns 200 with updated response body. Test verifies partial update (only `reconcileStatus` and `externalReferenceNumber` fields change), 404 when reference not found, 400 for validation errors on update DTO.
+- Files: `src/test/kotlin/com/webtransaction/microsite/controller/WebTransactionControllerSecurityTests.kt` (extend from Step 5)
+- Test strategy: Add tests verifying unauthenticated requests (no JWT) return 401 with `{ "error": "Unauthorized" }` and authenticated requests with insufficient scope return 403 with `{ "error": "Access denied" }`. Use MockMvc with no `Authorization` header (401 case) and `@WithMockUser` with wrong scope (403 case). Verify JSON response structure matches spec (no extra fields).
 
-### Step 10: End-to-end validation coverage
+### Step 9: Test HttpMessageNotReadableException handling
 - Test mode: `tdd`
-- Files: `src/test/kotlin/com/webtransaction/microsite/controller/WebTransactionControllerTests.kt` (extend from Step 9)
-- Test strategy: Add comprehensive edge-case tests: empty JSONB maps, null reconcilePayload on create, deeply nested JSONB structures (3+ levels), Unicode characters in string fields, boundary values for length constraints (reference exactly 100 chars, externalReferenceNumber exactly 255 chars). Verify all acceptance criteria are covered: 201/200/404/400 codes, error response structure, JSONB round-trip, field length limits, enum validation.
+- Files: `src/test/kotlin/com/webtransaction/microsite/controller/WebTransactionControllerSecurityTests.kt` (extend from Step 8)
+- Test strategy: Add test sending malformed JSON (e.g., `{"reference": 123}` where reference is a string field) to POST endpoint. Verify 400 response with `{ "error": "Malformed JSON request" }` (sanitized message, no stack trace). Test invalid enum value (e.g., `{"transactionType": "INVALID"}`) returns 400. Extend `GlobalExceptionHandler` to catch `HttpMessageNotReadableException` and return 400 with sanitized error message.
+
+### Step 10: Integration test with mocked JWT validation
+- Test mode: `tdd`
+- Files: `src/test/kotlin/com/webtransaction/microsite/controller/WebTransactionControllerSecurityTests.kt` (extend from Step 9)
+- Test strategy: Add comprehensive integration test using `@SpringBootTest` with `@AutoConfigureMockMvc` and custom `JwtDecoder` bean (mocked via `@TestConfiguration`) that returns a valid `Jwt` object with scopes in the `scope` claim. Test end-to-end flow: mock JWT with `read:web-transaction` scope can GET but cannot POST (403), mock JWT with `write:web-transaction` scope can POST/PUT but cannot GET (403 — or can GET if write implies read; clarify in implementation), mock JWT with both scopes can perform all operations. Verify all acceptance criteria: 401 without JWT, 403 with insufficient scope, 200/201 with sufficient scope, error response formats, actuator endpoints accessible without JWT.
 
 ## Risks
 
-- **JSONB mapping in DTOs**: Kotlin `Map<String, Any?>` serialization to Postgres JSONB via Jackson and Hibernate may have edge cases (e.g., null values in nested maps, type coercion). Mitigation: Step 10 tests deeply nested structures and null values explicitly.
-- **Reference non-uniqueness**: If multiple records share the same reference (allowed per WTR-3 schema), `findByReference` returns only the first match. This could be unexpected behavior. Mitigation: document this limitation in code comments; defer uniqueness constraint to a future schema migration if needed.
-- **Enum value mismatches**: If WTR-3's enum values don't match the spec's expected values, tests will fail. Mitigation: Step 4 tests verify enum mapping; if mismatches exist, update enums in WTR-3 retrospectively (out of scope for this plan, but flagged as a risk).
-- **Optimistic locking on PUT**: Concurrent updates may trigger `OptimisticLockException`. This plan does not add retry logic or special handling. Mitigation: exception handler maps `OptimisticLockException` → 409 Conflict (added to `GlobalExceptionHandler` in Step 2).
-- **ISO-8601 timestamp serialization**: If WTR-3's entity uses `LocalDateTime` without timezone, serialization may not include `Z` suffix. Mitigation: verify in Step 10 tests; if needed, configure Jackson's `ObjectMapper` to serialize with UTC timezone.
+- **JWT issuer URI placeholder**: `application.yml` uses placeholder `https://auth.example.com` which will fail in real deployments. Mitigation: document that environment-specific `JWT_ISSUER_URI` environment variable must be set in deployment configs (K8s ConfigMap, AWS SSM Parameter Store, etc.). Flag this requirement in deployment docs.
+- **Scope claim format variation**: Different OAuth2 providers format scopes differently (space-delimited string `scope: "read:web-transaction write:web-transaction"` vs. array `scope: ["read:web-transaction", "write:web-transaction"]`). Spring Security's `JwtGrantedAuthoritiesConverter` handles both by default, but custom converters may be needed for non-standard claims. Mitigation: Step 10 tests use standard format; if real issuer uses custom format, add custom `JwtAuthenticationConverter` bean in SecurityConfig.
+- **Audience claim validation failure**: If the OAuth2 provider does not include `aud` claim or uses a different audience value, JWT validation will fail. Mitigation: make audience validation optional via property `spring.security.oauth2.resourceserver.jwt.audiences` (can be empty list to disable). Document this configuration option.
+- **Actuator endpoint exposure in production**: Exposing `/actuator/info` may leak git commit hash and build metadata. Mitigation: this is standard practice for operational visibility; if sensitive, restrict actuator endpoints to internal network via infrastructure (e.g., K8s NetworkPolicy). Flag this in security review.
+- **Method security performance overhead**: `@PreAuthorize` evaluates SpEL expressions on every request, adding ~1-5ms latency per call. Mitigation: acceptable for this use case (transactional API, not high-throughput streaming). If performance becomes an issue, consider moving to URL-based authorization in `SecurityFilterChain`.
+- **Test profile security bypass**: `security.enabled=false` in test profile means integration tests do not validate JWT validation logic. Mitigation: Step 10 includes integration test with mocked `JwtDecoder` that runs with security enabled, verifying JWT flow end-to-end.
 
 ## Out-of-Plan (deferred)
 
-- **Integration tests with live database**: Spec explicitly defers this. Controller tests use `@WebMvcTest` (no database), service tests use `@MockBean` for repository.
-- **Swagger/OpenAPI documentation**: Out-of-scope per spec. No `@Operation` or `@ApiResponse` annotations added.
-- **Authentication/authorization**: Out-of-scope per spec. No `@PreAuthorize` or security filters.
-- **Bulk operations**: POST/PUT handle single transactions only. Batch endpoints deferred.
-- **DELETE endpoint**: Out-of-scope per spec.
-- **Pagination**: GET by reference returns single record; no list endpoints in this ticket.
-- **Audit logging**: No `@CreatedBy` / `@LastModifiedBy` annotations or audit tables.
-- **Rate limiting**: No `@RateLimiter` or throttling middleware.
-- **Soft delete**: No `deleted` flag or logical delete support.
-- **Retry logic for optimistic locking**: 409 response returned; client must retry.
-- **Repository query optimization**: Assumes `findByReference` from WTR-3 is efficient (indexed). No query tuning in this ticket.
-- **DTO-to-entity mapping library**: Uses manual mapping in service layer (no MapStruct or ModelMapper). Simple field-by-field assignment keeps the implementation transparent.
+- **Multi-issuer support**: Only one issuer per environment. Supporting multiple issuers (e.g., Auth0 + Cognito) requires custom `JwtDecoder` bean with issuer validation logic. Deferred.
+- **Custom JWT claims extraction**: Scope extraction assumes standard `scope` claim. If provider uses custom claim (e.g., `permissions`, `roles`), custom `JwtAuthenticationConverter` required. Deferred.
+- **Token refresh logic**: Out-of-scope per spec. Clients must obtain new JWT from identity provider when token expires.
+- **CORS configuration**: Not required for OAuth2 resource server (CORS is typically handled by API gateway or frontend proxy). If needed, add `@CrossOrigin` or CORS filter. Deferred.
+- **Data-level authorization**: Scope-based checks only (read/write). Tenant isolation, row-level security, or user-specific data filtering not implemented. Deferred.
+- **Database health checks**: Actuator `/health` returns simple UP/DOWN. No database connectivity check or custom health indicators. Can be added via custom `HealthIndicator` bean if needed. Deferred.
+- **Custom actuator metrics**: Only `/health` and `/info` exposed. Custom metrics (request counts, latency percentiles) not implemented. Deferred.
+- **Rate limiting**: No throttling or rate limit enforcement at application level. Assumed to be handled by API gateway (e.g., AWS API Gateway, Kong). Deferred.
+- **Integration tests with live identity provider**: Tests use mocked `JwtDecoder`. Live OAuth2 flow testing (with real Auth0/Cognito) deferred to E2E test suite outside application codebase.
+- **Session management**: Stateless JWT validation only. No session store, no logout endpoint. Deferred.
+- **Authorization audit logging**: No logging of authorization decisions (who accessed what, when). Can be added via custom Spring Security event listeners. Deferred.
+- **Git properties plugin configuration**: Assumes `git.properties` file is generated at build time. Requires Gradle plugin (`com.gorylenko.gradle-git-properties`) configuration in `build.gradle.kts`. If not already configured, add plugin in this step or defer to build pipeline setup. For this plan, assume plugin is added in Step 1 (dependency step), but if out-of-scope for implementation phase, document as deployment prerequisite.
