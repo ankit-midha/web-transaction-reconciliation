@@ -1,55 +1,52 @@
-# Draft spec — WTR-4: REST controller — 4 endpoints + DTOs + validation
+# Draft spec — WTR-5: OAuth2 security + global exception handler + actuator health
 
 ## Problem
-The Web Transaction Store needs REST endpoints to create, retrieve, and update web transaction records. Currently, these endpoints do not exist. External systems (including Sidekick) need to store transaction metadata with JSONB payloads and query/update by reference identifier.
+The Web Transaction Store API currently lacks authentication/authorization and standardized error handling. Protected endpoints are publicly accessible, validation errors return inconsistent responses, and operational endpoints (/health, /info) are not exposed.
 
 ## Goal
-Expose four REST endpoints under `/v1/webtransaction` that allow creating transactions, fetching by ID or reference, and updating reconciliation status. All endpoints must validate inputs and return proper HTTP status codes (201/200/404/400).
+Secure all transaction endpoints with JWT-based OAuth2 using scoped access control (read/write), implement consistent exception handling across all endpoints, and expose Spring Actuator health/info endpoints for operational monitoring.
 
 ## Non-Goals
-- Bulk operations (batch create/update)
-- DELETE endpoint
-- Pagination for list endpoints
-- Authentication/authorization implementation
+- Frontend/client-side JWT handling or token acquisition flows
+- Custom JWT issuer implementation (relying on external identity providers)
+- Database health checks or custom actuator metrics beyond basic /health and /info
+- Performance optimization or rate limiting
 
 ## Users / Surfaces affected
-**External systems:**
-- Sidekick service — will call `GET /v1/webtransaction/reference/{reference}` to retrieve transactions by reference identifier
-- Any service creating web transactions — will call `POST /v1/webtransaction`
-- Services updating reconciliation — will call `PUT /v1/webtransaction/reference/{reference}`
+**Users:** API consumers (authenticated services, client applications) and operations teams (for monitoring)
 
-**New components:**
-- `WebTransactionController` — REST controller with 4 endpoints
-- `WebTransactionService` — domain layer between controller and repository
-- `CreateWebTransactionRequest` DTO
-- `UpdateWebTransactionRequest` DTO
-- `WebTransactionResponse` DTO
-- Repository layer (interfacing with existing DB schema)
+**Surfaces:**
+- All existing REST endpoints in the Web Transaction Store API (GET, POST, PUT operations)
+- New endpoints: `/health` and `/info` (unauthenticated)
+- Security configuration class (to be created)
+- Global exception handler class (to be created, `GlobalExceptionHandler`)
+- Application properties files (security.enabled, JWT issuer configs per environment)
 
 ## Acceptance Criteria
-- `POST /v1/webtransaction` returns 201 Created with full record in response body
-- `GET /v1/webtransaction/{id}` returns 200 with record or 404 if not found
-- `GET /v1/webtransaction/reference/{reference}` returns 200 with record or 404 if reference doesn't exist
-- `PUT /v1/webtransaction/reference/{reference}` returns 200 with updated record, updates only `reconcile_status` and `external_reference_number`
-- Bean validation errors return 400 with structure: `{ "error": "...", "details": { "field": "message" } }`
-- JSONB fields (`originalPayload`, `reconcilePayload`) round-trip correctly, preserving nested map structure
-- `reference` field max length 100 characters
-- `externalReferenceNumber` field max length 255 characters
-- Service layer validates enum values for `transactionType`, `externalReferenceType`, and `reconcileStatus`
-- Service throws `EntityNotFoundException` for missing references, triggering 404 response
+- Unauthenticated GET request to any protected transaction endpoint returns 401 Unauthorized
+- Authenticated request with valid JWT but insufficient scope (e.g., `read:web-transaction` attempting POST) returns 403 Forbidden
+- Authenticated request with valid JWT and `read:web-transaction` scope can successfully GET transactions
+- Authenticated request with valid JWT and `write:web-transaction` scope can successfully POST/PUT transactions
+- `EntityNotFoundException` returns 404 with JSON body: `{ "error": "<message>" }`
+- `MethodArgumentNotValidException` (validation errors) returns 400 with JSON body: `{ "error": "Validation failed", "details": { "<field>": "<message>" } }`
+- `HttpMessageNotReadableException` (malformed JSON, invalid enum values) returns 400 with sanitized error message
+- `/health` endpoint is accessible without JWT and returns Spring Actuator health response
+- `/info` endpoint is accessible without JWT and returns application metadata including git build information
+- Security is disabled in local and test profiles via `security.enabled=false` property
+- Method-level security annotations are enabled via `@EnableMethodSecurity(prePostEnabled = true)`
 
 ## Open Questions
-1. Should the PUT endpoint return 404 if the reference doesn't exist, or 200 with a "not found" indicator in the response body?
-2. Are there specific enum values defined for `transactionType`, `externalReferenceType`, and `reconcileStatus`, or should these be created as part of this story?
-3. Should the `reference` field be unique in the database, or can multiple records share the same reference?
-4. What HTTP response code should be returned if enum validation fails in the service layer (invalid enum value passed) — 400 or 422?
-5. For the response DTO, should timestamp fields (`created`, `updated`) be formatted in ISO-8601 with timezone, or Unix epoch milliseconds?
-6. Is there an existing `@ControllerAdvice` or exception handler that maps `EntityNotFoundException` to 404, or does this need to be created?
-7. Should the `originalPayload` and `reconcilePayload` fields be required (`@NotNull`) or optional on create?
+1. **Spec §3.4 reference:** Where is "spec §3.4" that defines the issuer lists for dev/staging/prod environments? What document/location should be consulted for the exact issuer URIs per environment?
+2. **Multi-issuer configuration:** Should the dev/staging/prod environments support multiple JWT issuers simultaneously (e.g., Auth0 + Cognito), or one issuer per environment? If multiple, what is the priority/fallback order?
+3. **Audience validation:** Is the audience value `https://web-transaction-api` literal, or does it vary per environment (e.g., `https://dev.web-transaction-api`)?
+4. **Protected endpoint definition:** Which specific REST controller endpoints exist today that need scope protection? Should the scope checks be applied at the controller method level or via HTTP method filters?
+5. **Error response format:** Should the error responses include additional fields like `timestamp`, `path`, or `status` code, or strictly the `error` (and `details` for validation) fields as specified?
+6. **Git build info source:** How should git commit/branch information be populated in `/info`? Via Spring Boot Maven/Gradle plugin auto-generation, or custom build metadata injection?
 
 ## Out-of-Scope
-- Integration tests with test database (assumed to be covered separately)
-- API documentation generation (Swagger/OpenAPI)
-- Rate limiting or throttling
-- Audit logging of changes
-- Soft delete functionality
+- Authentication endpoint (`/auth`, `/login`) — assuming JWT tokens are acquired externally
+- Token refresh logic or session management
+- CORS configuration (unless required for OAuth2 flows)
+- Authorization beyond scope-based checks (e.g., tenant isolation, data-level permissions)
+- Custom actuator endpoints beyond `/health` and `/info`
+- Integration tests with live JWT issuer (assuming mocked JWT validation in tests)
