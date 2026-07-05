@@ -1,59 +1,72 @@
-# Draft spec — WTR-4: REST controller — 4 endpoints + DTOs + validation
+# Draft spec — WTR-6: Test suite with 95% JaCoCo coverage
 
 ## Problem
-The Web Transaction Store needs REST endpoints to create, retrieve, and update web transaction records. Currently, these endpoints do not exist. External systems (including Sidekick) need to store transaction metadata with JSONB payloads and query/update by reference identifier.
+The Web Transaction Store service currently lacks comprehensive test coverage. The service needs both unit and integration tests to reach 95% code coverage across all JaCoCo metrics (instruction, line, method, class) to ensure reliability and maintainability.
 
 ## Goal
-Expose four REST endpoints under `/v1/webtransaction` that allow creating transactions, fetching by ID or reference, and updating reconciliation status. All endpoints must validate inputs and return proper HTTP status codes (201/200/404/400).
+Achieve and verify 95% JaCoCo coverage across all four counters (instruction, line, method, class) with a complete test suite of 51 tests (37 unit + 14 functional) that all pass successfully.
 
 ## Non-Goals
-- Bulk operations (batch create/update)
-- DELETE endpoint
-- Pagination for list endpoints
-- Authentication/authorization implementation
+- Performance or load testing
+- End-to-end testing across multiple services
+- Manual testing procedures or QA handoff documentation
+- Test data generation frameworks or test fixtures beyond what's needed for the specified tests
 
 ## Users / Surfaces affected
-**External systems:**
-- Sidekick service — will call `GET /v1/webtransaction/reference/{reference}` to retrieve transactions by reference identifier
-- Any service creating web transactions — will call `POST /v1/webtransaction`
-- Services updating reconciliation — will call `PUT /v1/webtransaction/reference/{reference}`
+**Components tested:**
+- `Controller` layer (REST endpoints)
+- `Service` layer (business logic)
+- Exception handler (global error handling)
+- DTOs (data transfer objects)
+- Entity classes (JPA entities)
+- Configuration classes (HikariCP, datasource setup)
+- Health endpoints
 
-**New components:**
-- `WebTransactionController` — REST controller with 4 endpoints
-- `WebTransactionService` — domain layer between controller and repository
-- `CreateWebTransactionRequest` DTO
-- `UpdateWebTransactionRequest` DTO
-- `WebTransactionResponse` DTO
-- Repository layer (interfacing with existing DB schema)
+**Test infrastructure:**
+- Testcontainers integration (Postgres 15.4)
+- Environment-specific configuration files (`application-{local,test,dev,staging,prod}.yml`)
+- JaCoCo reporting plugin
+- Gradle test task
 
 ## Acceptance Criteria
-- `POST /v1/webtransaction` returns 201 Created with full record in response body
-- `GET /v1/webtransaction/{id}` returns 200 with record or 404 if not found
-- `GET /v1/webtransaction/reference/{reference}` returns 200 with record or 404 if reference doesn't exist
-- `PUT /v1/webtransaction/reference/{reference}` returns 200 with updated record, updates only `reconcile_status` and `external_reference_number`
-- Bean validation errors return 400 with structure: `{ "error": "...", "details": { "field": "message" } }`
-- JSONB fields (`originalPayload`, `reconcilePayload`) round-trip correctly, preserving nested map structure
-- `reference` field max length 100 characters
-- `externalReferenceNumber` field max length 255 characters
-- Service layer validates enum values for `transactionType`, `externalReferenceType`, and `reconcileStatus`
-- Service throws `EntityNotFoundException` for missing references, triggering 404 response
+- `./gradlew test` completes successfully with all tests passing
+- JaCoCo HTML/XML report shows ≥95% coverage on all four metrics: instruction, line, method, class
+- Total of 51 tests execute (37 unit + 14 functional)
+- **Unit tests breakdown (37 total):**
+  - Controller: 6 tests covering method delegation and exception propagation
+  - Service: 9 tests covering CRUD operations, payload handling, not-found scenarios
+  - Exception handler: 6 tests covering 404, 400 validation, 400 enum/deserialisation errors
+  - DTOs: 8 tests covering defaults, copy constructors, equality, toString
+  - Entity: 3 tests covering constructor defaults and field setters
+  - Config: 4 tests covering HikariDataSource creation and connection string handling
+  - Health: 1 test verifying health endpoint returns UP
+- **Functional tests (14 total):**
+  - Full HTTP lifecycle: create → read (by id + by reference) → update → read
+  - Validation failures at controller boundary
+  - 404 responses for missing id/reference
+  - Security enabled/disabled toggle behavior
+- Environment configurations present for all profiles (local, test, dev, staging, prod) with:
+  - Database URL and credentials via environment variables
+  - Flyway migration toggles per environment
+  - Actuator endpoint exposure rules per environment
+  - `security.enabled` flags
 
 ## Open Questions
-1. Should the PUT endpoint return 404 if the reference doesn't exist, or 200 with a "not found" indicator in the response body?
-2. Are there specific enum values defined for `transactionType`, `externalReferenceType`, and `reconcileStatus`, or should these be created as part of this story?
-3. Should the `reference` field be unique in the database, or can multiple records share the same reference?
-4. What HTTP response code should be returned if enum validation fails in the service layer (invalid enum value passed) — 400 or 422?
-5. For the response DTO, should timestamp fields (`created`, `updated`) be formatted in ISO-8601 with timezone, or Unix epoch milliseconds?
-6. Is there an existing `@ControllerAdvice` or exception handler that maps `EntityNotFoundException` to 404, or does this need to be created?
-7. Should the `originalPayload` and `reconcilePayload` fields be required (`@NotNull`) or optional on create?
+1. **Existing codebase:** Does the Web Transaction Store service already exist with endpoints/entities/services in place, or is this part of greenfield development where the code and tests are being built together?
+2. **"spec §6" reference:** The ticket mentions "37 total per spec §6" — is there a separate specification document that defines the test breakdown, or is the ticket description itself the authoritative spec?
+3. **Coverage scope:** Should the 95% coverage target apply to *all* production code, or are there exclusions (e.g., generated code, configuration classes, main application class)?
+4. **Testcontainers version:** The ticket specifies Testcontainers 1.21.4 — is this version already in use, or is this a new dependency being added?
+5. **Security feature:** What does "security enabled/disabled toggles" refer to? Is this Spring Security, a custom auth mechanism, or something else?
+6. **Flyway migrations:** Are database migrations already defined, or do they need to be created as part of this work?
+7. **Environment variable names:** Are there established naming conventions for the DB URL/creds environment variables (e.g., `DB_URL`, `DATABASE_URL`, `POSTGRES_HOST`)?
 
 ## Out-of-Scope
-- Integration tests with test database (assumed to be covered separately)
-- API documentation generation (Swagger/OpenAPI)
-- Rate limiting or throttling
-- Audit logging of changes
-- Soft delete functionality
+- Mutation testing or coverage quality analysis beyond the four JaCoCo metrics
+- CI/CD pipeline configuration for running tests
+- Test parallelization or test execution time optimization
+- Mocking strategy documentation or test architecture guidelines
+- Code changes to improve testability (e.g., refactoring for dependency injection) — tests must work with the existing service design
 
 ---
 _Reply on this ticket to refine. When you're happy, comment `APPROVED` (uppercase, standalone) and the workflow will move to the Plan phase._  
-_Job: wtr-4-xt19q0 · Ref: wtr-4-xt19q0:intake:1_
+_Job: wtr-6-dkuzkh · Ref: wtr-6-dkuzkh:intake:1_
