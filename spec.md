@@ -1,48 +1,59 @@
-# Draft spec — WTR-3: Database schema — Flyway V1-V4 + JPA entity + repository
+# Draft spec — WTR-4: REST controller — 4 endpoints + DTOs + validation
 
 ## Problem
-The Web Transaction Reconciliation system needs a persistence layer for tracking transaction reconciliation state. Currently there is no database schema or JPA mapping to store reconciliation transaction records.
+The Web Transaction Store needs REST endpoints to create, retrieve, and update web transaction records. Currently, these endpoints do not exist. External systems (including Sidekick) need to store transaction metadata with JSONB payloads and query/update by reference identifier.
 
 ## Goal
-Deliver a working database schema with Flyway migrations (V1-V4) and a fully-mapped JPA entity (`ReconciliationTransaction`) backed by a Spring Data repository, allowing the application to persist and query reconciliation transactions against Postgres 15.4 with optimistic locking support.
+Expose four REST endpoints under `/v1/webtransaction` that allow creating transactions, fetching by ID or reference, and updating reconciliation status. All endpoints must validate inputs and return proper HTTP status codes (201/200/404/400).
 
 ## Non-Goals
-- Implementation of business logic that uses the repository (service layer, controllers, reconciliation workflows)
-- The 29-table 3NF normalized schema described in V2 (this ticket delivers only a placeholder/stub)
-- Data migration from any existing system
-- Performance tuning beyond the specified indexes
+- Bulk operations (batch create/update)
+- DELETE endpoint
+- Pagination for list endpoints
+- Authentication/authorization implementation
 
 ## Users / Surfaces affected
-- **Module**: `src/main/resources/db/migration` — Flyway migration scripts
-- **Module**: JPA entity classes (Kotlin) — `ReconciliationTransaction`, enums `TransactionType`, `ExternalReferenceType`, `ReconcileStatus`
-- **Module**: Spring Data repository interface — `ReconciliationTransactionRepository`
-- **Surface**: Postgres 15.4 database — table `reconciliation_transaction` with indexes
+**External systems:**
+- Sidekick service — will call `GET /v1/webtransaction/reference/{reference}` to retrieve transactions by reference identifier
+- Any service creating web transactions — will call `POST /v1/webtransaction`
+- Services updating reconciliation — will call `PUT /v1/webtransaction/reference/{reference}`
+
+**New components:**
+- `WebTransactionController` — REST controller with 4 endpoints
+- `WebTransactionService` — domain layer between controller and repository
+- `CreateWebTransactionRequest` DTO
+- `UpdateWebTransactionRequest` DTO
+- `WebTransactionResponse` DTO
+- Repository layer (interfacing with existing DB schema)
 
 ## Acceptance Criteria
-- Flyway 6.3.1 migrates cleanly against an empty Postgres 15.4 database
-- All four migrations (V1, V2, V3, V4) apply in sequence without error
-- The `reconciliation_transaction` table exists with all specified columns, indexes, and constraints after V4
-- JPA entity `ReconciliationTransaction` maps to the table with `@Version` annotation
-- Repository method `findByReference(reference: String)` exists and is callable
-- Optimistic locking works: concurrent updates to the same row throw `OptimisticLockException`
-- Database grants are applied as specified in V1
+- `POST /v1/webtransaction` returns 201 Created with full record in response body
+- `GET /v1/webtransaction/{id}` returns 200 with record or 404 if not found
+- `GET /v1/webtransaction/reference/{reference}` returns 200 with record or 404 if reference doesn't exist
+- `PUT /v1/webtransaction/reference/{reference}` returns 200 with updated record, updates only `reconcile_status` and `external_reference_number`
+- Bean validation errors return 400 with structure: `{ "error": "...", "details": { "field": "message" } }`
+- JSONB fields (`originalPayload`, `reconcilePayload`) round-trip correctly, preserving nested map structure
+- `reference` field max length 100 characters
+- `externalReferenceNumber` field max length 255 characters
+- Service layer validates enum values for `transactionType`, `externalReferenceType`, and `reconcileStatus`
+- Service throws `EntityNotFoundException` for missing references, triggering 404 response
 
 ## Open Questions
-1. **V1 grants**: Which database user/role should receive the grants? Should this be parameterized or hardcoded?
-2. **V2 placeholder**: Should V2 contain an empty file, a comment-only stub, or a minimal skeleton (e.g., one placeholder table)? What is acceptable to keep Flyway happy?
-3. **V3 column rename**: The migration renames `internal_reference_type` → `external_reference_type`, but V1 already creates `external_reference_type`. Is V3 a no-op for the rename, or should V1 create `internal_reference_type` instead?
-4. **V4 version column**: V4 adds a `version` column, but V1 already includes `version BIGINT DEFAULT 0`. Is V4 a no-op for the version column, or should V1 omit it?
-5. **Kotlin entity**: Should `ReconciliationTransaction` be a Kotlin `data class` or a regular `class`? (JPA entities as data classes have caveats around proxying and lazy loading.)
-6. **TransactionType enum values**: The ticket lists `WEB_ELECTRICITY_ORDER etc.` — what is the full list of enum values?
-7. **Repository package**: Where should `ReconciliationTransactionRepository` live? (e.g., `com.example.repository`, or another package structure?)
-8. **Timezone for timestamps**: Should `created` and `updated` use `TIMESTAMP` (no timezone) or `TIMESTAMPTZ` (with timezone)?
+1. Should the PUT endpoint return 404 if the reference doesn't exist, or 200 with a "not found" indicator in the response body?
+2. Are there specific enum values defined for `transactionType`, `externalReferenceType`, and `reconcileStatus`, or should these be created as part of this story?
+3. Should the `reference` field be unique in the database, or can multiple records share the same reference?
+4. What HTTP response code should be returned if enum validation fails in the service layer (invalid enum value passed) — 400 or 422?
+5. For the response DTO, should timestamp fields (`created`, `updated`) be formatted in ISO-8601 with timezone, or Unix epoch milliseconds?
+6. Is there an existing `@ControllerAdvice` or exception handler that maps `EntityNotFoundException` to 404, or does this need to be created?
+7. Should the `originalPayload` and `reconcilePayload` fields be required (`@NotNull`) or optional on create?
 
 ## Out-of-Scope
-- Unit or integration tests for the repository (acceptance criterion focuses on Flyway + locking behavior, not test coverage)
-- Audit logging or triggers on the `reconciliation_transaction` table
-- Liquibase or other migration tooling (Flyway 6.3.1 is specified)
-- Read replicas, partitioning, or other database topology concerns
+- Integration tests with test database (assumed to be covered separately)
+- API documentation generation (Swagger/OpenAPI)
+- Rate limiting or throttling
+- Audit logging of changes
+- Soft delete functionality
 
 ---
 _Reply on this ticket to refine. When you're happy, comment `APPROVED` (uppercase, standalone) and the workflow will move to the Plan phase._  
-_Job: wtr-3-979qad · Ref: wtr-3-979qad:intake:1_
+_Job: wtr-4-xt19q0 · Ref: wtr-4-xt19q0:intake:1_

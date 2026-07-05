@@ -1,110 +1,123 @@
 ---
 generated_by: agentic-sdlc/plan@v1
-jira_key: WTR-3
-job_id: wtr-3-979qad
+jira_key: WTR-4
+job_id: wtr-4-xt19q0
 ---
 
-# WTR-3 — Implementation plan
+# WTR-4 — Implementation plan
 
 ## Approach
 
-This plan delivers a Flyway-managed database schema for the `reconciliation_transaction` table with four migrations (V1-V4), corresponding JPA entity classes in Kotlin, and a Spring Data repository. The migrations follow an evolutionary approach: V1 creates the initial table, V2 is a placeholder stub for the deferred 29-table normalized schema, V3 demonstrates a column rename, and V4 adds optimistic locking support.
+This plan delivers a REST API for the Web Transaction Store with four endpoints (POST create, GET by ID, GET by reference, PUT by reference), implementing the controller-service-repository pattern standard in Spring Boot applications. Building on WTR-3's JPA entity and repository foundation, this ticket adds the web layer and service layer with validation.
 
-To resolve the spec's open questions, this plan makes the following decisions aligned with standard Spring Boot / Flyway conventions:
-- **Package structure**: Following WTR-2's `com.webtransaction.microsite` base, entities live in `com.webtransaction.microsite.entity`, repositories in `com.webtransaction.microsite.repository`.
-- **V1 grants**: Apply to database user `wtr_app` (parameterizable via Flyway placeholders in `application.yml`).
-- **V2 placeholder**: A comment-only SQL file explaining the deferral — Flyway accepts this.
-- **V3 column rename**: V1 creates `internal_reference_type`; V3 renames it to `external_reference_type` to demonstrate schema evolution.
-- **V4 version column**: V1 omits the `version` column; V4 adds it, aligning with the JPA `@Version` annotation.
-- **Kotlin entity**: Regular `class` (not `data class`) to avoid JPA proxy issues with lazy loading.
-- **TransactionType enum**: Initial set `{WEB_ELECTRICITY_ORDER, WEB_WATER_ORDER, WEB_GAS_ORDER}` — extensible.
-- **Timestamps**: `TIMESTAMP WITHOUT TIME ZONE` (application controls timezone; aligns with Spring Boot defaults).
+To resolve the spec's open questions, this plan makes the following decisions aligned with Spring Boot conventions:
 
-The JPA entity uses Hibernate's naming strategy (`SpringPhysicalNamingStrategy`), which maps `camelCase` properties to `snake_case` columns. The repository extends `JpaRepository` with a single query method `findByReference`. Optimistic locking is enforced via `@Version` on the `version` column — concurrent updates trigger `OptimisticLockException`.
+- **PUT 404 behavior**: Returns 404 if the reference doesn't exist (REST convention: PUT on non-existent resource is an error).
+- **Enum values**: Re-use the enums from WTR-3 (`TransactionType`, `ExternalReferenceType`, `ReconcileStatus`). WTR-3 defined these with initial values — this plan assumes they exist.
+- **Reference uniqueness**: Treat `reference` as a lookup key (not enforced unique in DB per WTR-3, but typically only one record per reference in practice). GET by reference returns the first match; if multiple exist, this is a data quality issue outside this ticket's scope.
+- **Enum validation response code**: Return 400 (Bad Request) for invalid enum values — these are client input errors, same as missing required fields.
+- **Timestamp format**: ISO-8601 with timezone (e.g., `2026-07-05T14:23:01Z`) — Spring Boot's Jackson defaults serialize `Instant` / `LocalDateTime` this way.
+- **Exception handler**: Create a `@RestControllerAdvice` class to map `EntityNotFoundException` → 404, `MethodArgumentNotValidException` → 400 with field details, and other exceptions to 500.
+- **Payload optionality**: `originalPayload` is required on create (cannot be null). `reconcilePayload` is optional (can be null initially, populated later via PUT).
 
-Dependencies added to `build.gradle.kts`: `spring-boot-starter-data-jpa`, `org.flywaydb:flyway-core:6.3.1`, `org.postgresql:postgresql`. The Flyway baseline is version 1; all four migrations run on an empty database.
+The service layer wraps the repository with domain validation: enum deserialization, length checks (delegated to Bean Validation), and existence checks (throwing `EntityNotFoundException` when a reference is not found). The controller delegates all business logic to the service, keeping controller methods thin (single responsibility: HTTP marshalling).
+
+DTOs use Kotlin data classes with Jackson annotations for JSON serialization. JSONB fields (`originalPayload`, `reconcilePayload`) map to `Map<String, Any?>` in Kotlin, serialized by Jackson's `ObjectMapper` to preserve nested structure. The repository layer (from WTR-3) already handles Postgres JSONB via Hibernate's `@JdbcTypeCode(SqlTypes.JSON)`.
+
+Dependencies: `spring-boot-starter-web` (already implicit in Spring Boot starters), `spring-boot-starter-validation` for Bean Validation (`@Valid`, `@NotBlank`, `@Size`). No new Gradle dependencies required beyond what WTR-3 added.
+
+Package structure (aligning with WTR-3's `com.webtransaction.microsite.*`):
+- `com.webtransaction.microsite.controller.WebTransactionController`
+- `com.webtransaction.microsite.service.WebTransactionService`
+- `com.webtransaction.microsite.dto.CreateWebTransactionRequest`
+- `com.webtransaction.microsite.dto.UpdateWebTransactionRequest`
+- `com.webtransaction.microsite.dto.WebTransactionResponse`
+- `com.webtransaction.microsite.exception.EntityNotFoundException`
+- `com.webtransaction.microsite.exception.GlobalExceptionHandler`
 
 ## Files in scope
 
-- `build.gradle.kts`
-- `src/main/resources/application.yml`
-- `src/main/resources/db/migration/V1__create_reconciliation_transaction.sql`
-- `src/main/resources/db/migration/V2__placeholder_normalized_schema.sql`
-- `src/main/resources/db/migration/V3__rename_reference_type_column.sql`
-- `src/main/resources/db/migration/V4__add_version_column.sql`
-- `src/main/kotlin/com/webtransaction/microsite/entity/ReconciliationTransaction.kt`
-- `src/main/kotlin/com/webtransaction/microsite/entity/TransactionType.kt`
-- `src/main/kotlin/com/webtransaction/microsite/entity/ExternalReferenceType.kt`
-- `src/main/kotlin/com/webtransaction/microsite/entity/ReconcileStatus.kt`
-- `src/main/kotlin/com/webtransaction/microsite/repository/ReconciliationTransactionRepository.kt`
-- `src/test/kotlin/com/webtransaction/microsite/repository/ReconciliationTransactionRepositoryTests.kt`
+- `src/main/kotlin/com/webtransaction/microsite/controller/WebTransactionController.kt`
+- `src/main/kotlin/com/webtransaction/microsite/service/WebTransactionService.kt`
+- `src/main/kotlin/com/webtransaction/microsite/dto/CreateWebTransactionRequest.kt`
+- `src/main/kotlin/com/webtransaction/microsite/dto/UpdateWebTransactionRequest.kt`
+- `src/main/kotlin/com/webtransaction/microsite/dto/WebTransactionResponse.kt`
+- `src/main/kotlin/com/webtransaction/microsite/exception/EntityNotFoundException.kt`
+- `src/main/kotlin/com/webtransaction/microsite/exception/GlobalExceptionHandler.kt`
+- `src/test/kotlin/com/webtransaction/microsite/controller/WebTransactionControllerTests.kt`
+- `src/test/kotlin/com/webtransaction/microsite/service/WebTransactionServiceTests.kt`
 
 ## Plan Steps
 
-### Step 1: Add Flyway and Postgres dependencies
+### Step 1: Create EntityNotFoundException
 - Test mode: `test-after`
-- Files: `build.gradle.kts`
-- Test strategy: Run `./gradlew build` and verify the build resolves `flyway-core:6.3.1`, `spring-boot-starter-data-jpa`, and `postgresql` without dependency conflicts. Manual validation — existing tests from WTR-2 must still pass.
+- Files: `src/main/kotlin/com/webtransaction/microsite/exception/EntityNotFoundException.kt`
+- Test strategy: No standalone test for this exception class. Verified in Step 7 (service layer tests) where it is thrown and caught. Simple runtime exception extending `RuntimeException` with a message parameter.
 
-### Step 2: Configure Flyway in application.yml
-- Test mode: `test-after`
-- Files: `src/main/resources/application.yml`
-- Test strategy: Add Flyway configuration (baseline-on-migrate, locations, placeholders for `wtr_app` user). Verify `./gradlew bootRun` starts without Flyway errors (expects migrations to be added in Step 3). Manual validation.
-
-### Step 3: Create V1 migration — initial table
-- Test mode: `test-after`
-- Files: `src/main/resources/db/migration/V1__create_reconciliation_transaction.sql`
-- Test strategy: Start Postgres via `docker compose up -d`. Run `./gradlew flywayMigrate` and verify V1 applies cleanly. Query `flyway_schema_history` and confirm version 1 exists. Query `reconciliation_transaction` schema and verify columns match spec (including `internal_reference_type`, not `external_reference_type` yet). Verify grants on `wtr_app` user.
-
-### Step 4: Create V2 migration — placeholder for normalized schema
-- Test mode: `test-after`
-- Files: `src/main/resources/db/migration/V2__placeholder_normalized_schema.sql`
-- Test strategy: Run `./gradlew flywayMigrate` and verify V2 applies without error. Verify `flyway_schema_history` shows version 2. The file contains only a comment explaining the 29-table schema is deferred — no schema changes.
-
-### Step 5: Create V3 migration — rename column
-- Test mode: `test-after`
-- Files: `src/main/resources/db/migration/V3__rename_reference_type_column.sql`
-- Test strategy: Run `./gradlew flywayMigrate` and verify V3 applies. Query `reconciliation_transaction` and confirm column `internal_reference_type` no longer exists, `external_reference_type` exists. Verify indexes referencing the old column name are updated.
-
-### Step 6: Create V4 migration — add version column
-- Test mode: `test-after`
-- Files: `src/main/resources/db/migration/V4__add_version_column.sql`
-- Test strategy: Run `./gradlew flywayMigrate` and verify V4 applies. Query `reconciliation_transaction` and confirm `version BIGINT DEFAULT 0 NOT NULL` exists. Insert a test row and verify `version` defaults to 0.
-
-### Step 7: Create enum classes
+### Step 2: Create GlobalExceptionHandler
 - Test mode: `tdd`
-- Files: `src/main/kotlin/com/webtransaction/microsite/entity/TransactionType.kt`, `src/main/kotlin/com/webtransaction/microsite/entity/ExternalReferenceType.kt`, `src/main/kotlin/com/webtransaction/microsite/entity/ReconcileStatus.kt`
-- Test strategy: No standalone tests for enums — they are validated via the entity tests in Step 8. Verify each enum is a Kotlin `enum class` with appropriate values (`TransactionType` has `WEB_ELECTRICITY_ORDER`, `WEB_WATER_ORDER`, `WEB_GAS_ORDER`).
+- Files: `src/main/kotlin/com/webtransaction/microsite/exception/GlobalExceptionHandler.kt`, `src/test/kotlin/com/webtransaction/microsite/controller/WebTransactionControllerTests.kt`
+- Test strategy: Write controller tests that trigger exceptions (`EntityNotFoundException`, `MethodArgumentNotValidException`, generic exceptions) and verify response structure and status codes. `@RestControllerAdvice` handler must map: `EntityNotFoundException` → 404 with `{"error": "..."}`, `MethodArgumentNotValidException` → 400 with `{"error": "...", "details": {"field": "message"}}`, other exceptions → 500 with `{"error": "Internal server error"}`.
 
-### Step 8: Create JPA entity
-- Test mode: `tdd`
-- Files: `src/main/kotlin/com/webtransaction/microsite/entity/ReconciliationTransaction.kt`, `src/test/kotlin/com/webtransaction/microsite/repository/ReconciliationTransactionRepositoryTests.kt`
-- Test strategy: Write `ReconciliationTransactionRepositoryTests` using `@DataJpaTest` with Testcontainers (Postgres 15.4). Test creates an entity, persists via repository, queries by reference, and verifies all fields map correctly. Verify `@Version` column increments on update. Test must achieve >95% coverage on the entity.
+### Step 3: Create DTOs
+- Test mode: `test-after`
+- Files: `src/main/kotlin/com/webtransaction/microsite/dto/CreateWebTransactionRequest.kt`, `src/main/kotlin/com/webtransaction/microsite/dto/UpdateWebTransactionRequest.kt`, `src/main/kotlin/com/webtransaction/microsite/dto/WebTransactionResponse.kt`
+- Test strategy: DTOs are Kotlin data classes with Bean Validation annotations (`@NotBlank`, `@Size`, `@NotNull`). No standalone tests — validation is exercised via controller tests in Step 8. Verify structure: `CreateWebTransactionRequest` has all entity fields except `id`/`version`/timestamps. `UpdateWebTransactionRequest` has only `reconcileStatus` and `externalReferenceNumber`. `WebTransactionResponse` mirrors entity structure with ISO-8601 timestamps.
 
-### Step 9: Create Spring Data repository
+### Step 4: Create WebTransactionService — create operation
 - Test mode: `tdd`
-- Files: `src/main/kotlin/com/webtransaction/microsite/repository/ReconciliationTransactionRepository.kt`, `src/test/kotlin/com/webtransaction/microsite/repository/ReconciliationTransactionRepositoryTests.kt` (extend from Step 8)
-- Test strategy: Extend `ReconciliationTransactionRepositoryTests` to verify `findByReference(reference: String)` returns the correct entity. Verify the method returns `null` or empty when reference doesn't exist.
+- Files: `src/main/kotlin/com/webtransaction/microsite/service/WebTransactionService.kt`, `src/test/kotlin/com/webtransaction/microsite/service/WebTransactionServiceTests.kt`
+- Test strategy: Write `WebTransactionServiceTests` using `@MockBean` for the repository (from WTR-3). Test `createTransaction(request: CreateWebTransactionRequest): WebTransactionResponse` maps DTO → entity, saves via repository, returns response DTO. Verify JSONB fields (`originalPayload`, `reconcilePayload`) preserve nested map structure. Verify enum values are correctly mapped. Test must cover happy path and invalid enum values (should throw IllegalArgumentException, which triggers 400 via exception handler).
 
-### Step 10: Test optimistic locking
+### Step 5: Create WebTransactionService — read operations
 - Test mode: `tdd`
-- Files: `src/test/kotlin/com/webtransaction/microsite/repository/ReconciliationTransactionRepositoryTests.kt` (extend from Step 9)
-- Test strategy: Add test that simulates concurrent updates: fetch the same entity in two transactions, update both, commit first, then commit second. Verify the second commit throws `OptimisticLockException`. Test must pass to satisfy acceptance criteria.
+- Files: `src/main/kotlin/com/webtransaction/microsite/service/WebTransactionService.kt`, `src/test/kotlin/com/webtransaction/microsite/service/WebTransactionServiceTests.kt` (extend from Step 4)
+- Test strategy: Add `getTransactionById(id: Long): WebTransactionResponse` and `getTransactionByReference(reference: String): WebTransactionResponse`. Both throw `EntityNotFoundException` when not found. Tests mock repository methods (`findById`, `findByReference` from WTR-3) and verify exception is thrown for missing entities, response DTO is returned for found entities.
+
+### Step 6: Create WebTransactionService — update operation
+- Test mode: `tdd`
+- Files: `src/main/kotlin/com/webtransaction/microsite/service/WebTransactionService.kt`, `src/test/kotlin/com/webtransaction/microsite/service/WebTransactionServiceTests.kt` (extend from Step 5)
+- Test strategy: Add `updateTransactionByReference(reference: String, request: UpdateWebTransactionRequest): WebTransactionResponse`. Method fetches entity by reference (throws `EntityNotFoundException` if not found), updates only `reconcileStatus` and `externalReferenceNumber` fields, saves, returns response DTO. Test verifies partial update (other fields unchanged), exception thrown for missing reference, optimistic locking version increments.
+
+### Step 7: Create WebTransactionController — POST endpoint
+- Test mode: `tdd`
+- Files: `src/main/kotlin/com/webtransaction/microsite/controller/WebTransactionController.kt`, `src/test/kotlin/com/webtransaction/microsite/controller/WebTransactionControllerTests.kt`
+- Test strategy: Write `WebTransactionControllerTests` using `@WebMvcTest(WebTransactionController::class)` with `@MockBean` for service. Test `POST /v1/webtransaction` returns 201 with response body. Verify `@Valid` triggers 400 for missing required fields, violating `@Size` constraints (reference > 100 chars, externalReferenceNumber > 255 chars), and invalid enum values. Verify JSONB fields round-trip correctly in request/response.
+
+### Step 8: Create WebTransactionController — GET endpoints
+- Test mode: `tdd`
+- Files: `src/main/kotlin/com/webtransaction/microsite/controller/WebTransactionController.kt`, `src/test/kotlin/com/webtransaction/microsite/controller/WebTransactionControllerTests.kt` (extend from Step 7)
+- Test strategy: Add `GET /v1/webtransaction/{id}` and `GET /v1/webtransaction/reference/{reference}`. Both return 200 with response body when found, 404 when not found (service throws `EntityNotFoundException`, caught by `GlobalExceptionHandler`). Tests verify path variable binding, 404 response structure matches `{"error": "..."}`.
+
+### Step 9: Create WebTransactionController — PUT endpoint
+- Test mode: `tdd`
+- Files: `src/main/kotlin/com/webtransaction/microsite/controller/WebTransactionController.kt`, `src/test/kotlin/com/webtransaction/microsite/controller/WebTransactionControllerTests.kt` (extend from Step 8)
+- Test strategy: Add `PUT /v1/webtransaction/reference/{reference}`. Returns 200 with updated response body. Test verifies partial update (only `reconcileStatus` and `externalReferenceNumber` fields change), 404 when reference not found, 400 for validation errors on update DTO.
+
+### Step 10: End-to-end validation coverage
+- Test mode: `tdd`
+- Files: `src/test/kotlin/com/webtransaction/microsite/controller/WebTransactionControllerTests.kt` (extend from Step 9)
+- Test strategy: Add comprehensive edge-case tests: empty JSONB maps, null reconcilePayload on create, deeply nested JSONB structures (3+ levels), Unicode characters in string fields, boundary values for length constraints (reference exactly 100 chars, externalReferenceNumber exactly 255 chars). Verify all acceptance criteria are covered: 201/200/404/400 codes, error response structure, JSONB round-trip, field length limits, enum validation.
 
 ## Risks
 
-- **Flyway 6.3.1 compatibility with Spring Boot 3.3.12**: Flyway 6.x is older; Spring Boot 3.x typically uses Flyway 9.x. Dependency resolution may force an upgrade, or runtime errors may occur. Mitigation: if Flyway 6.3.1 is unavailable or conflicts, escalate to clarify version requirement — the spec explicitly requests 6.3.1.
-- **V1 grants on `wtr_app` user**: If the Postgres Docker Compose setup doesn't create this user, grants will fail. Mitigation: V1 migration includes `CREATE USER IF NOT EXISTS` or equivalent, or the user is pre-created in an init script referenced from `docker-compose.yml`.
-- **Column name mismatch (V3)**: If V1 accidentally creates `external_reference_type` instead of `internal_reference_type`, V3's rename will fail. Mitigation: carefully verify V1 column names before writing V3.
-- **JaCoCo 95% threshold on JPA entity**: Entities with many fields may not reach 95% coverage without exhaustive tests. Mitigation: Step 8 tests must cover all getters/setters/constructors — use a comprehensive field-check test.
-- **Testcontainers performance**: Spinning up Postgres containers in tests can be slow. Mitigation: use `@Testcontainers` with `@Container` and reuse the container across test methods where possible.
+- **JSONB mapping in DTOs**: Kotlin `Map<String, Any?>` serialization to Postgres JSONB via Jackson and Hibernate may have edge cases (e.g., null values in nested maps, type coercion). Mitigation: Step 10 tests deeply nested structures and null values explicitly.
+- **Reference non-uniqueness**: If multiple records share the same reference (allowed per WTR-3 schema), `findByReference` returns only the first match. This could be unexpected behavior. Mitigation: document this limitation in code comments; defer uniqueness constraint to a future schema migration if needed.
+- **Enum value mismatches**: If WTR-3's enum values don't match the spec's expected values, tests will fail. Mitigation: Step 4 tests verify enum mapping; if mismatches exist, update enums in WTR-3 retrospectively (out of scope for this plan, but flagged as a risk).
+- **Optimistic locking on PUT**: Concurrent updates may trigger `OptimisticLockException`. This plan does not add retry logic or special handling. Mitigation: exception handler maps `OptimisticLockException` → 409 Conflict (added to `GlobalExceptionHandler` in Step 2).
+- **ISO-8601 timestamp serialization**: If WTR-3's entity uses `LocalDateTime` without timezone, serialization may not include `Z` suffix. Mitigation: verify in Step 10 tests; if needed, configure Jackson's `ObjectMapper` to serialize with UTC timezone.
 
 ## Out-of-Plan (deferred)
 
-- **Service layer / business logic**: Explicitly out-of-scope per spec. No `ReconciliationService` or controller integration in this ticket.
-- **29-table normalized schema (V2)**: The spec defers this to a future ticket. V2 is a placeholder only.
-- **Data migration from existing systems**: Out-of-scope per spec.
-- **Performance tuning beyond specified indexes**: V1 includes indexes on `reference` and `external_reference_type` per standard practice, but no query optimization or partitioning.
-- **Audit logging / triggers**: Out-of-scope per spec.
-- **CI/CD changes**: No modifications to `.github/workflows/` or CI config per constraint.
-- **Repository query methods beyond `findByReference`**: Only the single method specified in acceptance criteria is implemented. Additional query methods (e.g., `findByStatus`, `findByType`) deferred to future tickets.
+- **Integration tests with live database**: Spec explicitly defers this. Controller tests use `@WebMvcTest` (no database), service tests use `@MockBean` for repository.
+- **Swagger/OpenAPI documentation**: Out-of-scope per spec. No `@Operation` or `@ApiResponse` annotations added.
+- **Authentication/authorization**: Out-of-scope per spec. No `@PreAuthorize` or security filters.
+- **Bulk operations**: POST/PUT handle single transactions only. Batch endpoints deferred.
+- **DELETE endpoint**: Out-of-scope per spec.
+- **Pagination**: GET by reference returns single record; no list endpoints in this ticket.
+- **Audit logging**: No `@CreatedBy` / `@LastModifiedBy` annotations or audit tables.
+- **Rate limiting**: No `@RateLimiter` or throttling middleware.
+- **Soft delete**: No `deleted` flag or logical delete support.
+- **Retry logic for optimistic locking**: 409 response returned; client must retry.
+- **Repository query optimization**: Assumes `findByReference` from WTR-3 is efficient (indexed). No query tuning in this ticket.
+- **DTO-to-entity mapping library**: Uses manual mapping in service layer (no MapStruct or ModelMapper). Simple field-by-field assignment keeps the implementation transparent.
