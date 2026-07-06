@@ -16,3 +16,11 @@ spring:
     jpa:
       repositories:
         enabled: true
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ""
+
+security:
+  enabled: false
