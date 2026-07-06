@@ -1,59 +1,65 @@
-# Draft spec — WTR-6: Test suite with 95% JaCoCo coverage
+# Draft spec — WTR-10: E2E verification, deployment config, and docs
 
 ## Problem
-The Web Transaction Store service currently lacks comprehensive test coverage. The service needs both unit and integration tests to reach 95% code coverage across all JaCoCo metrics (instruction, line, method, class) to ensure reliability and maintainability.
+The web-transaction-microsite (WTS) and orders-microsite integration needs end-to-end testing infrastructure, deployment configuration, and documentation to be production-ready. Currently missing:
+- WireMock test stubs in orders-microsite to verify WTS integration behavior (happy path + failure modes)
+- Deployment configuration (microsite.yaml) for both services in the RetailX pipeline
+- Documentation covering architecture, setup, integration points, and design decisions
 
 ## Goal
-Achieve and verify 95% JaCoCo coverage across all four counters (instruction, line, method, class) with a complete test suite of 51 tests (37 unit + 14 functional) that all pass successfully.
+Complete the cross-cutting deliverables required to deploy and maintain the WTS integration: E2E test harness with WireMock stubs, deployment configuration with feature flag control, and comprehensive documentation.
 
 ## Non-Goals
-- Performance or load testing
-- End-to-end testing across multiple services
-- Manual testing procedures or QA handoff documentation
-- Test data generation frameworks or test fixtures beyond what's needed for the specified tests
+- Implementing the actual WTS or orders-microsite integration logic (assumed complete)
+- Performance testing or load testing
+- Production monitoring/alerting setup beyond Slack channel routing
+- Database migration scripts (RDS Postgres binding only)
 
 ## Users / Surfaces affected
-**Components tested:**
-- `Controller` layer (REST endpoints)
-- `Service` layer (business logic)
-- Exception handler (global error handling)
-- DTOs (data transfer objects)
-- Entity classes (JPA entities)
-- Configuration classes (HikariCP, datasource setup)
-- Health endpoints
+**orders-microsite:**
+- `tests/` directory — new WireMock stub definitions for WTS endpoints
+- `CHANGELOG.md` — integration documentation entry
+- Deployment config — `microsite.yaml` with WTS feature flag
 
-**Test infrastructure:**
-- Testcontainers integration (Postgres 15.4)
-- Environment-specific configuration files (`application-{local,test,dev,staging,prod}.yml`)
-- JaCoCo reporting plugin
-- Gradle test task
+**web-transaction-microsite:**
+- `README.md` — new/updated with architecture, dev setup, endpoints, security scopes
+- Deployment config — `microsite.yaml` with RDS Postgres binding
+- New ADR document — fire-and-forget design rationale and failure modes
+
+**Shared:**
+- Docker Compose configuration for E2E testing
+- RetailX CI/CD pipeline definitions for both services
 
 ## Acceptance Criteria
-- `./gradlew test` completes successfully with all tests passing
-- JaCoCo HTML/XML report shows ≥95% coverage on all four metrics: instruction, line, method, class
-- Total of 51 tests execute (37 unit + 14 functional)
-- **Unit tests breakdown (37 total):**
-  - Controller: 6 tests covering method delegation and exception propagation
-  - Service: 9 tests covering CRUD operations, payload handling, not-found scenarios
-  - Exception handler: 6 tests covering 404, 400 validation, 400 enum/deserialisation errors
-  - DTOs: 8 tests covering defaults, copy constructors, equality, toString
-  - Entity: 3 tests covering constructor defaults and field setters
-  - Config: 4 tests covering HikariDataSource creation and connection string handling
-  - Health: 1 test verifying health endpoint returns UP
-- **Functional tests (14 total):**
-  - Full HTTP lifecycle: create → read (by id + by reference) → update → read
-  - Validation failures at controller boundary
-  - 404 responses for missing id/reference
-  - Security enabled/disabled toggle behavior
-- Environment configurations present for all profiles (local, test, dev, staging, prod) with:
-  - Database URL and credentials via environment variables
-  - Flyway migration toggles per environment
-  - Actuator endpoint exposure rules per environment
-  - `security.enabled` flags
+- WireMock stubs in orders-microsite tests cover:
+  - `POST /v1/webtransaction` returning 201
+  - `PUT /v1/webtransaction/reference/{ref}` returning 200
+  - Failure scenarios (500 error, timeout) exercising fire-and-forget behavior
+- `microsite.yaml` deployment configuration exists for both services with:
+  - Image build definitions
+  - ECS Fargate task definitions
+  - RDS Postgres binding for WTS
+  - Slack channel routing
+  - Environment promotion path: dev → staging → prod
+  - Feature flag `wts.integration.enabled` in orders-microsite
+- Documentation complete:
+  - `README.md` in web-transaction-microsite covers architecture, dev setup, endpoints, security scopes
+  - `CHANGELOG.md` entry in orders-microsite documents the integration
+  - ADR created explaining fire-and-forget rationale and failure modes
+- E2E test passes: Docker Compose brings up Postgres + WTS + orders-microsite with WireMock, fake order creates `reconciliation_transaction` row that gets updated
+- CI green in RetailX for both microsites
+
+## Open Questions
+1. Where should the ADR document be located — in orders-microsite, web-transaction-microsite, or a shared docs repo?
+2. What are the specific security scopes required for the WTS endpoints (referenced in README)?
+3. Does the existing Docker Compose setup need modification, or is a new compose file required for E2E testing?
+4. What is the expected timeout duration for the WireMock timeout failure stub?
+5. Are there existing microsite.yaml templates in the RetailX pipeline that should be followed, or is this greenfield?
+6. What Slack channel(s) should receive deployment notifications for each service?
+7. Should the feature flag default to enabled or disabled in each environment (dev/staging/prod)?
 
 ## Out-of-Scope
-- Mutation testing or coverage quality analysis beyond the four JaCoCo metrics
-- CI/CD pipeline configuration for running tests
-- Test parallelization or test execution time optimization
-- Mocking strategy documentation or test architecture guidelines
-- Code changes to improve testability (e.g., refactoring for dependency injection) — tests must work with the existing service design
+- Implementing application-level error handling or retry logic (fire-and-forget is already designed)
+- Setting up production database schemas or running migrations (only binding configuration)
+- Creating new CI/CD pipeline infrastructure (using existing RetailX pipeline)
+- Monitoring dashboards or metrics collection beyond deployment notifications
