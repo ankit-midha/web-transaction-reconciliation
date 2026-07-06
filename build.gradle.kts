@@ -27,11 +27,13 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
+    implementation("org.springframework.boot:spring-boot-starter-oauth2-resource-server")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("io.hypersistence:hypersistence-utils-hibernate-63:3.7.3")
     runtimeOnly("org.postgresql:postgresql")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("org.springframework.security:spring-security-test")
     testImplementation("com.h2database:h2")
     testImplementation("io.mockk:mockk:1.13.10")
     testImplementation("com.ninja-squad:springmockk:4.0.2")
@@ -112,4 +114,17 @@ tasks.named("check") {
 tasks.named("build") {
     dependsOn(tasks.named("ktlintCheck"))
     dependsOn(tasks.named("detekt"))
+}
+
+springBoot {
+    buildInfo {
+        properties {
+            additional.set(
+                mapOf(
+                    "git.branch" to (System.getenv("GIT_BRANCH") ?: "unknown"),
+                    "git.commit" to (System.getenv("GIT_COMMIT") ?: "unknown")
+                )
+            )
+        }
+    }
 }

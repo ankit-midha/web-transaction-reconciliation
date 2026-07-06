@@ -14,15 +14,25 @@ spring:
       hibernate:
         format_sql: true
     show-sql: false
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: https://auth.example.com/oauth2/default
+          audiences: https://web-transaction-api
 
 server:
   port: 8080
+
+security:
+  enabled: true
 
 management:
   endpoints:
     web:
       exposure:
         include: health,info
+      base-path: /actuator
   endpoint:
     health:
       show-details: when-authorized

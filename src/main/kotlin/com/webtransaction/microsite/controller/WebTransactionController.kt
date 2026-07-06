@@ -7,6 +7,7 @@ import com.webtransaction.microsite.service.WebTransactionService
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
+import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
@@ -23,6 +24,7 @@ class WebTransactionController(
     private val service: WebTransactionService
 ) {
     @PostMapping
+    @PreAuthorize("hasAuthority('SCOPE_write:web-transaction')")
     fun create(@Valid @RequestBody request: CreateWebTransactionRequest): ResponseEntity<WebTransactionResponse> {
         val transaction = service.create(
             reference = request.reference,
@@ -43,18 +45,21 @@ class WebTransactionController(
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAuthority('SCOPE_read:web-transaction')")
     fun getById(@PathVariable id: Long): ResponseEntity<WebTransactionResponse> {
         val transaction = service.getById(id)
         return ResponseEntity.ok(WebTransactionResponse.from(transaction))
     }
 
     @GetMapping("/reference/{reference}")
+    @PreAuthorize("hasAuthority('SCOPE_read:web-transaction')")
     fun getByReference(@PathVariable reference: String): ResponseEntity<WebTransactionResponse> {
         val transaction = service.getByReference(reference)
         return ResponseEntity.ok(WebTransactionResponse.from(transaction))
     }
 
     @PutMapping("/reference/{reference}")
+    @PreAuthorize("hasAuthority('SCOPE_write:web-transaction')")
     fun updateByReference(
         @PathVariable reference: String,
         @Valid @RequestBody request: UpdateWebTransactionRequest
