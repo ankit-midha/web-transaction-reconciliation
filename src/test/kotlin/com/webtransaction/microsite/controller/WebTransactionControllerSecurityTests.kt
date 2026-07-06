@@ -42,13 +42,13 @@ class WebTransactionControllerSecurityTests {
         id = 1L,
         reference = "REF-001",
         transactionType = TransactionType.PAYMENT,
-        originalPayload = """{"amount": 100}""",
-        externalReferenceType = "INVOICE",
+        originalPayload = mapOf("amount" to 100),
+        externalReferenceType = com.webtransaction.microsite.domain.ExternalReferenceType.ORDER_ID,
         externalReferenceNumber = "INV-001",
         reconcilePayload = null,
         reconcileStatus = ReconcileStatus.PENDING,
-        createdAt = LocalDateTime.now(),
-        updatedAt = LocalDateTime.now()
+        created = LocalDateTime.now(),
+        updated = LocalDateTime.now()
     )
 
     @Test
@@ -75,8 +75,8 @@ class WebTransactionControllerSecurityTests {
         val request = CreateWebTransactionRequest(
             reference = "REF-001",
             transactionType = TransactionType.PAYMENT,
-            originalPayload = """{"amount": 100}""",
-            externalReferenceType = "INVOICE",
+            originalPayload = mapOf("amount" to 100),
+            externalReferenceType = com.webtransaction.microsite.domain.ExternalReferenceType.ORDER_ID,
             externalReferenceNumber = "INV-001",
             reconcilePayload = null,
             reconcileStatus = ReconcileStatus.PENDING
@@ -86,8 +86,8 @@ class WebTransactionControllerSecurityTests {
             service.create(
                 reference = "REF-001",
                 transactionType = TransactionType.PAYMENT,
-                originalPayload = """{"amount": 100}""",
-                externalReferenceType = "INVOICE",
+                originalPayload = mapOf("amount" to 100),
+                externalReferenceType = com.webtransaction.microsite.domain.ExternalReferenceType.ORDER_ID,
                 externalReferenceNumber = "INV-001",
                 reconcilePayload = null,
                 reconcileStatus = ReconcileStatus.PENDING
@@ -108,7 +108,7 @@ class WebTransactionControllerSecurityTests {
         val request = UpdateWebTransactionRequest(
             reconcileStatus = ReconcileStatus.RECONCILED,
             externalReferenceNumber = "INV-001-UPDATED",
-            reconcilePayload = """{"reconciled": true}"""
+            reconcilePayload = mapOf("reconciled" to true)
         )
 
         every {
@@ -116,7 +116,7 @@ class WebTransactionControllerSecurityTests {
                 reference = "REF-001",
                 reconcileStatus = ReconcileStatus.RECONCILED,
                 externalReferenceNumber = "INV-001-UPDATED",
-                reconcilePayload = """{"reconciled": true}"""
+                reconcilePayload = mapOf("reconciled" to true)
             )
         } returns sampleTransaction
 
@@ -142,8 +142,8 @@ class WebTransactionControllerSecurityTests {
         val request = CreateWebTransactionRequest(
             reference = "REF-001",
             transactionType = TransactionType.PAYMENT,
-            originalPayload = """{"amount": 100}""",
-            externalReferenceType = "INVOICE",
+            originalPayload = mapOf("amount" to 100),
+            externalReferenceType = com.webtransaction.microsite.domain.ExternalReferenceType.ORDER_ID,
             externalReferenceNumber = "INV-001",
             reconcilePayload = null,
             reconcileStatus = ReconcileStatus.PENDING
@@ -164,7 +164,7 @@ class WebTransactionControllerSecurityTests {
         val request = UpdateWebTransactionRequest(
             reconcileStatus = ReconcileStatus.RECONCILED,
             externalReferenceNumber = "INV-001-UPDATED",
-            reconcilePayload = """{"reconciled": true}"""
+            reconcilePayload = mapOf("reconciled" to true)
         )
 
         mockMvc.perform(
