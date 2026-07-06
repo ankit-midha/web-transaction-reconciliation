@@ -18,3 +18,15 @@ npm-debug.log
 
 # JetBrains IDEs
 .idea/
+*.iml
+
+# Gradle
+.gradle/
+build/
+bin/
+out/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Spring Boot
+*.log
+*.gz

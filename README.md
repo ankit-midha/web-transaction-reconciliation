@@ -1,9 +1,78 @@
-# web-transaction-reconciliation
+# Web Transaction Microsite
 
 Target repo for the merged-SDLC agent orchestrator (see sibling
 [`personal-agentic-poc`](../personal-agentic-poc)). This repo is what the agent clones,
 opens PRs on, and pushes `<JIRA-KEY>-plan` / `<JIRA-KEY>-impl` branches to when a Jira
 ticket in the "Web Transaction Reconciliation" project transitions to READY FOR BUILD.
+
+## Getting Started
+
+### Prerequisites
+- JDK 17 or higher
+- Docker and Docker Compose (for local Postgres)
+
+### Local Development
+
+1. **Build the project**
+   ```bash
+   ./gradlew build
+   ```
+
+2. **Run tests**
+   ```bash
+   ./gradlew test
+   ```
+
+3. **Start Postgres locally**
+   ```bash
+   docker compose up -d postgres
+   ```
+
+4. **Run the application**
+   ```bash
+   ./gradlew bootRun
+   ```
+   The application will be available at `http://localhost:8080`
+
+5. **Test the health endpoint**
+   ```bash
+   curl http://localhost:8080/health
+   ```
+   Expected response: `{"status":"UP"}`
+
+### Docker Build
+
+Build and run the application container:
+```bash
+docker build -t web-transaction-microsite:local .
+docker run --rm -p 8080:8080 web-transaction-microsite:local
+```
+
+Or use Docker Compose to run both app and database:
+```bash
+docker compose up
+```
+
+### Code Quality
+
+The project enforces code quality gates that run as part of `./gradlew build`:
+- **Ktlint** (version 1.1.1) - Kotlin code style enforcement
+- **Detekt** - Static code analysis
+- **JaCoCo** - 95% minimum coverage across instruction, line, method, and class metrics
+
+Run quality checks individually:
+```bash
+./gradlew ktlintCheck  # Kotlin style
+./gradlew detekt       # Static analysis
+./gradlew jacocoTestCoverageVerification  # Coverage verification
+```
+
+Format code automatically:
+```bash
+./gradlew ktlintFormat
+```
+
+---
 
 ## The intake loop (implemented)
 
