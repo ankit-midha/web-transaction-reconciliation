@@ -1,104 +1,120 @@
 ---
 generated_by: agentic-sdlc/plan@v1
-jira_key: WTR-2
-job_id: wtr-2-l06yf8
+jira_key: WTR-4
+job_id: wtr-4-drddc7
 ---
 
-# WTR-2 — Implementation plan
+# WTR-4 — Implementation plan
 
 ## Approach
 
-This plan creates a production-ready Spring Boot 3.3.12 skeleton using Kotlin 1.9.23 with Gradle 8.6+ (Kotlin DSL), enforced quality gates (Ktlint, Detekt, JaCoCo 95%), and local development infrastructure (Postgres 15.4 via Docker Compose). The skeleton will use `com.webtransaction.microsite` as the base package, following standard Spring Boot conventions.
+This plan implements a RESTful API for Web Transaction management following Spring Boot best practices with a layered architecture: Controller → Service → Repository. The implementation uses JPA for persistence with PostgreSQL's JSONB support via Hibernate's native JSON handling.
 
-To satisfy the 95% JaCoCo threshold on a greenfield codebase, we include a minimal health check endpoint (`GET /health`) with comprehensive tests. This provides a working baseline that demonstrates the build pipeline, testing infrastructure, and containerization while keeping scope tight.
+The architecture follows standard Spring patterns:
+- **Controller layer** handles HTTP concerns (path mapping, status codes, request/response marshalling)
+- **Service layer** encapsulates business logic and validation
+- **Repository layer** provides data access via Spring Data JPA
+- **DTO layer** decouples API contracts from domain entities
 
 **Resolving spec ambiguities:**
-- **Gradle DSL**: Kotlin DSL (modern default for Kotlin projects)
-- **Ktlint version**: 1.1.1 (spec's "11.3.2" appears to be a typo; Ktlint versioning is 1.x as of 2025)
-- **Kafka**: Deferred — Docker Compose includes only Postgres 15.4
-- **Spring starters**: `web`, `data-jpa`, `actuator`, `test` (minimal viable set for a containerized service with database connectivity)
-- **JaCoCo 95%**: Met via health check controller + tests; threshold remains at 95% from day one to establish quality baseline
+- **PUT 404 behavior**: Returns 404 if reference doesn't exist (RESTful convention)
+- **Enum definitions**: Create three enums with placeholder values (`PURCHASE`/`REFUND` for transaction type, `ORDER_ID`/`PAYMENT_ID` for reference type, `PENDING`/`COMPLETED`/`FAILED` for reconcile status) — real values can be refined post-implementation
+- **Reference uniqueness**: Not enforced as unique in this plan (spec doesn't require it; can be added later if needed)
+- **Invalid enum response**: 400 Bad Request (invalid input format)
+- **Timestamp format**: ISO-8601 with timezone (Jackson default for `LocalDateTime`)
+- **ControllerAdvice**: Created as part of this implementation
+- **Payload optionality**: Both `originalPayload` and `reconcilePayload` are optional (`@field:Valid` but not `@field:NotNull`)
 
-The multi-stage Dockerfile uses Corretto 17 Alpine for the runtime image. All quality gates (Ktlint, Detekt, JaCoCo) run as part of `./gradlew build` and must pass before merge.
+The JSONB fields are mapped using `@JvmField @Column(columnDefinition = "jsonb")` with Hibernate's JSON support, ensuring proper serialization/deserialization of nested maps.
+
+All endpoints follow REST conventions:
+- POST returns 201 Created with Location header
+- GET by ID/reference returns 200 or 404
+- PUT returns 200 with updated entity or 404
+
+Test coverage will exceed 95% via comprehensive controller tests (using `@WebMvcTest`), service tests (using mocked repositories), and repository tests (using `@DataJpaTest` with H2).
 
 ## Files in scope
 
-- `settings.gradle.kts`
-- `build.gradle.kts`
-- `gradle/wrapper/gradle-wrapper.properties`
-- `gradle/wrapper/gradle-wrapper.jar`
-- `gradlew`
-- `gradlew.bat`
-- `src/main/kotlin/com/webtransaction/microsite/Application.kt`
-- `src/main/kotlin/com/webtransaction/microsite/controller/HealthController.kt`
-- `src/main/resources/application.yml`
-- `src/main/resources/application-test.yml`
-- `src/test/kotlin/com/webtransaction/microsite/ApplicationTests.kt`
-- `src/test/kotlin/com/webtransaction/microsite/controller/HealthControllerTests.kt`
-- `docker-compose.yml`
-- `Dockerfile`
-- `.editorconfig`
-- `.gitignore` (update existing)
-- `README.md` (update existing)
-- `detekt.yml`
+- `build.gradle.kts` (add validation dependency)
+- `src/main/kotlin/com/webtransaction/microsite/domain/WebTransaction.kt`
+- `src/main/kotlin/com/webtransaction/microsite/domain/TransactionType.kt`
+- `src/main/kotlin/com/webtransaction/microsite/domain/ExternalReferenceType.kt`
+- `src/main/kotlin/com/webtransaction/microsite/domain/ReconcileStatus.kt`
+- `src/main/kotlin/com/webtransaction/microsite/repository/WebTransactionRepository.kt`
+- `src/main/kotlin/com/webtransaction/microsite/service/WebTransactionService.kt`
+- `src/main/kotlin/com/webtransaction/microsite/exception/EntityNotFoundException.kt`
+- `src/main/kotlin/com/webtransaction/microsite/controller/WebTransactionController.kt`
+- `src/main/kotlin/com/webtransaction/microsite/controller/GlobalExceptionHandler.kt`
+- `src/main/kotlin/com/webtransaction/microsite/dto/CreateWebTransactionRequest.kt`
+- `src/main/kotlin/com/webtransaction/microsite/dto/UpdateWebTransactionRequest.kt`
+- `src/main/kotlin/com/webtransaction/microsite/dto/WebTransactionResponse.kt`
+- `src/main/resources/application.yml` (update JPA settings if needed)
+- `src/test/kotlin/com/webtransaction/microsite/controller/WebTransactionControllerTests.kt`
+- `src/test/kotlin/com/webtransaction/microsite/service/WebTransactionServiceTests.kt`
+- `src/test/kotlin/com/webtransaction/microsite/repository/WebTransactionRepositoryTests.kt`
 
 ## Plan Steps
 
-### Step 1: Initialize Gradle wrapper and base build configuration
+### Step 1: Add Bean Validation dependency and configure JPA
 - Test mode: `test-after`
-- Files: `settings.gradle.kts`, `build.gradle.kts`, `gradle/wrapper/gradle-wrapper.properties`, `gradle/wrapper/gradle-wrapper.jar`, `gradlew`, `gradlew.bat`
-- Test strategy: Verify `./gradlew --version` reports Gradle 8.6+. Verify `./gradlew tasks` completes without errors and lists standard Spring Boot tasks. Manual validation only — no automated tests at this stage.
+- Files: `build.gradle.kts`, `src/main/resources/application.yml`
+- Test strategy: Run `./gradlew build` and verify `spring-boot-starter-validation` is resolved. Verify existing tests still pass. Manual validation — no new automated tests at this stage.
 
-### Step 2: Create Spring Boot application entrypoint
+### Step 2: Create domain entity and enums
 - Test mode: `tdd`
-- Files: `src/main/kotlin/com/webtransaction/microsite/Application.kt`, `src/test/kotlin/com/webtransaction/microsite/ApplicationTests.kt`, `src/main/resources/application.yml`, `src/main/resources/application-test.yml`
-- Test strategy: Write `ApplicationTests` with `@SpringBootTest` annotation that verifies the Spring context loads successfully. Use H2 in-memory database for tests (configure in `application-test.yml`) to avoid Postgres dependency. Test must pass and achieve >95% coverage on `Application.kt`.
+- Files: `src/main/kotlin/com/webtransaction/microsite/domain/WebTransaction.kt`, `src/main/kotlin/com/webtransaction/microsite/domain/TransactionType.kt`, `src/main/kotlin/com/webtransaction/microsite/domain/ExternalReferenceType.kt`, `src/main/kotlin/com/webtransaction/microsite/domain/ReconcileStatus.kt`, `src/test/kotlin/com/webtransaction/microsite/repository/WebTransactionRepositoryTests.kt`
+- Test strategy: Write repository tests using `@DataJpaTest` with H2 in-memory database. Test entity persistence (save and findById), JSONB field serialization (save map, retrieve, verify structure), and findByReference query. Verify timestamps are auto-populated. Target 100% coverage on entity.
 
-### Step 3: Implement health check endpoint
+### Step 3: Create repository interface
 - Test mode: `tdd`
-- Files: `src/main/kotlin/com/webtransaction/microsite/controller/HealthController.kt`, `src/test/kotlin/com/webtransaction/microsite/controller/HealthControllerTests.kt`
-- Test strategy: Write `HealthControllerTests` using `@WebMvcTest(HealthController::class)` to verify `GET /health` returns 200 with `{"status":"UP"}` JSON response. Verify all controller code paths are covered (aim for 100% coverage on this class).
+- Files: `src/main/kotlin/com/webtransaction/microsite/repository/WebTransactionRepository.kt`, `src/test/kotlin/com/webtransaction/microsite/repository/WebTransactionRepositoryTests.kt`
+- Test strategy: Extend repository tests to verify `findByReference` returns correct entity or null. Test that repository inherits standard CRUD operations from `JpaRepository`. Coverage: 100% on repository interface methods.
 
-### Step 4: Configure Ktlint and Detekt quality gates
-- Test mode: `test-after`
-- Files: `build.gradle.kts`, `detekt.yml`
-- Test strategy: Run `./gradlew ktlintCheck` and verify zero violations. Run `./gradlew detekt` and verify zero violations. Intentionally introduce a style violation (e.g., extra whitespace) and confirm `ktlintCheck` fails. Revert and confirm all existing tests still pass.
+### Step 4: Create service layer with business logic
+- Test mode: `tdd`
+- Files: `src/main/kotlin/com/webtransaction/microsite/service/WebTransactionService.kt`, `src/main/kotlin/com/webtransaction/microsite/exception/EntityNotFoundException.kt`, `src/test/kotlin/com/webtransaction/microsite/service/WebTransactionServiceTests.kt`
+- Test strategy: Write service tests with mocked repository using `@MockkBean`. Test create (verify save is called, response is mapped), getById (test found and not found cases), getByReference (test found and not found, verify EntityNotFoundException), update (test found, not found, verify only reconcile fields are updated). Coverage: >95% on service, 100% on exception.
 
-### Step 5: Enable JaCoCo coverage verification
-- Test mode: `test-after`
-- Files: `build.gradle.kts`
-- Test strategy: Run `./gradlew test jacocoTestCoverageVerification` and verify it passes with 95% thresholds on instruction, line, method, and class metrics. Run `./gradlew build` and confirm JaCoCo runs as part of the build. Temporarily comment out one test method, confirm coverage drops below 95% and build fails, then restore.
+### Step 5: Create DTOs with validation annotations
+- Test mode: `tdd`
+- Files: `src/main/kotlin/com/webtransaction/microsite/dto/CreateWebTransactionRequest.kt`, `src/main/kotlin/com/webtransaction/microsite/dto/UpdateWebTransactionRequest.kt`, `src/main/kotlin/com/webtransaction/microsite/dto/WebTransactionResponse.kt`, `src/test/kotlin/com/webtransaction/microsite/controller/WebTransactionControllerTests.kt`
+- Test strategy: Write controller tests using `@WebMvcTest` with mocked service. Test validation: missing required fields return 400, field length violations return 400 with details, invalid enum values return 400. Verify DTO-to-entity and entity-to-DTO mapping preserves all fields including JSONB. Coverage: 100% on DTOs (via controller tests exercising all fields).
 
-### Step 6: Create multi-stage Dockerfile
-- Test mode: `test-after`
-- Files: `Dockerfile`
-- Test strategy: Run `docker build -t web-transaction-microsite:local .` and verify it completes successfully. Inspect the final image with `docker inspect web-transaction-microsite:local` and confirm base is `amazoncorretto:17-alpine`. Run `docker run --rm -p 8080:8080 web-transaction-microsite:local` and verify Spring Boot starts, health endpoint is reachable at `http://localhost:8080/health`, and returns expected JSON.
+### Step 6: Create controller with REST endpoints
+- Test mode: `tdd`
+- Files: `src/main/kotlin/com/webtransaction/microsite/controller/WebTransactionController.kt`, `src/test/kotlin/com/webtransaction/microsite/controller/WebTransactionControllerTests.kt`
+- Test strategy: Extend controller tests to verify: POST returns 201 with Location header and response body, GET by ID returns 200 with entity or 404, GET by reference returns 200 or 404, PUT returns 200 with updated entity or 404. Test that validation errors are properly formatted. Coverage: 100% on controller.
 
-### Step 7: Add Docker Compose with Postgres 15.4
-- Test mode: `test-after`
-- Files: `docker-compose.yml`, `src/main/resources/application.yml`
-- Test strategy: Run `docker compose up -d postgres` and verify `docker compose ps` shows postgres service as healthy. Run `docker compose exec postgres psql -U postgres -c 'SELECT version();'` and confirm it reports Postgres 15.4. Verify application.yml contains correct JDBC URL, username, password for local Postgres. Run `docker compose down -v` to clean up.
+### Step 7: Create global exception handler
+- Test mode: `tdd`
+- Files: `src/main/kotlin/com/webtransaction/microsite/controller/GlobalExceptionHandler.kt`, `src/test/kotlin/com/webtransaction/microsite/controller/WebTransactionControllerTests.kt`
+- Test strategy: Extend controller tests to verify exception handling: EntityNotFoundException returns 404 with message, MethodArgumentNotValidException returns 400 with field errors in `{"error": "...", "details": {"field": "message"}}` structure, other exceptions return 500. Coverage: 100% on exception handler.
 
-### Step 8: Add project configuration files
+### Step 8: Integration verification
 - Test mode: `test-after`
-- Files: `.editorconfig`, `.gitignore`, `README.md`, `detekt.yml`
-- Test strategy: Verify `.gitignore` includes Gradle artifacts (`build/`, `.gradle/`, `bin/`), IDE files (`.idea/`, `*.iml`), and OS files (`.DS_Store`). Verify `README.md` documents setup steps (`./gradlew build`, `docker compose up`, how to run tests, how to build Docker image). Verify `.editorconfig` specifies Kotlin conventions (4-space indent, `lf` line endings, charset UTF-8). Manual validation — no automated tests.
+- Files: All files in scope
+- Test strategy: Run `./gradlew build` and verify all tests pass. Run `./gradlew jacocoTestCoverageVerification` and confirm >95% coverage. Run `./gradlew ktlintCheck detekt` and verify zero violations. Start application with `./gradlew bootRun` and manually test endpoints with curl: create transaction, fetch by ID, fetch by reference, update by reference, verify validation errors. Confirm JSONB round-trips correctly with nested maps.
 
 ## Risks
 
-- **JaCoCo 95% threshold on greenfield code**: This is a high bar for initial scaffolding. Mitigation: the health check endpoint + tests provide enough coverage to meet the threshold. Future tickets adding complex business logic may need to invest in test coverage from the start.
-- **Kotlin 1.9.23 compatibility with Spring Boot 3.3.12**: Spring Boot 3.3.x officially supports Kotlin 1.9.x, but transitive dependency conflicts could arise. Mitigation: lock plugin versions explicitly and use Spring's dependency management BOM.
-- **Ktlint version ambiguity**: Spec cites "11.3.2" but Ktlint versioning is 1.x. If this is a custom fork or internal build, implementation will fail. Mitigation: plan assumes 1.1.1; if build fails, consult with reporter.
-- **Test database strategy**: `@SpringBootTest` attempting to connect to Postgres when it's not running would break tests. Mitigation: use H2 in-memory database for tests (via `application-test.yml` profile) and reserve Postgres for local runtime only.
-- **Dockerfile build context size**: If the repository accumulates large build artifacts, Docker build may be slow or fail. Mitigation: `.dockerignore` (out of scope here, but worth noting) should exclude `.git/`, `build/`, `.gradle/`, etc.
+- **JSONB PostgreSQL compatibility with H2 tests**: H2 doesn't natively support JSONB type. Mitigation: H2 can handle JSON columns with columnDefinition override; tests will use H2's JSON support which is compatible enough for unit tests. Real Postgres validation can be done manually.
+- **Enum validation in service layer**: If invalid enum string is passed from controller (after JSON deserialization), Jackson will throw before it reaches service. Mitigation: GlobalExceptionHandler catches `HttpMessageNotReadableException` and returns 400.
+- **JSONB serialization format**: Hibernate's JSON handling may differ between Postgres and H2. Mitigation: Integration verification step includes manual testing against real Postgres via Docker Compose.
+- **95% coverage with DTO classes**: Kotlin data classes generate many methods (equals, hashCode, toString, copy, componentN). Mitigation: Tests will exercise DTO mapping in controller tests, ensuring coverage of primary constructor and key methods.
+- **Location header format**: POST endpoint must return URI in Location header. Mitigation: Use `ServletUriComponentsBuilder` to construct proper URI from created entity ID.
 
 ## Out-of-Plan (deferred)
 
-- **Kafka / Zookeeper infrastructure**: Spec lists this as "if needed" — deferred until a future ticket requires message broker integration.
-- **Database schema or migrations**: Explicitly out-of-scope per spec. Flyway or Liquibase configuration deferred to future work.
-- **CI/CD pipeline**: Plan cannot modify `.github/workflows/` per constraints. GitHub Actions workflow for running `./gradlew build` on PR can be added in a follow-up ticket.
-- **Production application properties**: Only local dev properties (Postgres connection for Docker Compose, H2 for tests) are included. Environment-specific config (staging, prod) deferred.
-- **API documentation (Swagger/OpenAPI)**: No business logic endpoints exist yet. Swagger setup deferred until API surface is defined.
-- **Advanced observability**: Spring Boot Actuator is included with default endpoints (`/actuator/health`, `/actuator/info`). Custom metrics, distributed tracing (e.g., Micrometer + Zipkin) deferred.
-- **Security configuration**: No authentication or authorization is configured. Deferred to future tickets when security requirements are defined.
-- **Pre-commit hooks**: Ktlint and Detekt run as part of `./gradlew build`, but Git pre-commit hooks are not configured. Developers must run build locally before pushing. Hook setup could be added via Husky or similar in a follow-up.
+- **Database schema creation**: Plan assumes schema already exists (JPA `ddl-auto: validate` in application.yml). If schema doesn't exist, this will fail. Database migration (Flyway/Liquibase) is out of scope per original scaffolding plan.
+- **Reference field uniqueness constraint**: Spec doesn't explicitly require uniqueness. If needed, add `@Column(unique = true)` to entity and corresponding migration in future ticket.
+- **Bulk operations**: POST/PUT for multiple transactions explicitly out of scope.
+- **DELETE endpoint**: Out of scope per spec.
+- **Pagination**: GET endpoints return single entities, not lists. List endpoints deferred.
+- **Authentication/Authorization**: Endpoints are unauthenticated. Security layer deferred.
+- **Audit logging**: No audit trail of creates/updates. Deferred to future observability work.
+- **API documentation**: Swagger/OpenAPI annotations deferred.
+- **Integration tests with real Postgres**: Only unit tests with H2 in this plan. Full integration tests with Testcontainers deferred.
+- **Soft delete**: Hard delete only (though no DELETE endpoint exists yet).
+- **Optimistic locking**: No `@Version` field on entity. Concurrent update handling deferred.
+- **Custom JSON serialization**: Assumes Jackson defaults are acceptable for JSONB and timestamps. Custom serializers deferred if needed.
