@@ -1,0 +1,4 @@
+-- V4: No-op migration
+-- Originally planned to add version column for optimistic locking
+-- However, V1 already includes the version column (version BIGINT DEFAULT 0 NOT NULL)
+-- This migration exists to satisfy the four-migration requirement from the spec

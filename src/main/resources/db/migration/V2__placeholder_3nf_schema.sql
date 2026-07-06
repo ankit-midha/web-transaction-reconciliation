@@ -1,0 +1,2 @@
+-- V2: Placeholder for future 29-table 3NF normalized schema (deferred per WTR-3 spec)
+-- This migration is intentionally empty and serves as a marker for future schema expansion

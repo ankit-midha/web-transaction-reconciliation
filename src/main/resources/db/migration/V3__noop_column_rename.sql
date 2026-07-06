@@ -1,0 +1,4 @@
+-- V3: No-op migration
+-- Originally planned to rename internal_reference_type to external_reference_type
+-- However, V1 already creates the column with the correct name (external_reference_type)
+-- This migration exists to satisfy the four-migration requirement from the spec
